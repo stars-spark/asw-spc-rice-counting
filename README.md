@@ -43,9 +43,11 @@ pip install -r requirements.txt
 只跑方法一不需要 GPU。与 SAM 3 的对照实验和学生模型需要 PyTorch 与一块显卡；
 GPU 版的几何方法另需 CuPy 与 cuCIM（见 `requirements.txt` 中的注释）。
 
-中文图表需要系统里有中文字体。若自动查找失败，用环境变量指定：
+插图上的字体与报告正文一致，西文取 Latin Modern Roman、中文取方正书宋，
+找不到时按候选列表回退。也可以用环境变量直接指定字体文件：
 
 ```bash
+export RICE_LATIN_FONT=/path/to/lmroman10-regular.otf
 export RICE_CJK_FONT=/path/to/your/cjk-font.ttf
 ```
 

@@ -12,30 +12,68 @@ matplotlib.use("Agg")
 
 from matplotlib import font_manager
 
-# SimHei is the usual choice for Chinese plots and is present on this machine; the others
-# are fallbacks so the module still works elsewhere.
-_CJK_CANDIDATES = (
-    "/home/jiale/.local/share/fonts/winfonts/simhei.ttf",
-    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-    "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
+# 图上的字与正文保持一致：西文用 Latin Modern Roman，中文用方正书宋，
+# 与 report/tpl_cjournal.tex 里 \setCJKmainfont 指定的是同一套。
+# 找不到时按候选顺序回退，也可用环境变量 RICE_LATIN_FONT / RICE_CJK_FONT 指定文件。
+_LATIN_FAMILIES = ("Latin Modern Roman", "CMU Serif", "TeX Gyre Termes", "DejaVu Serif")
+_CJK_FAMILIES = ("FZShuSong-Z01", "Source Han Serif SC", "Noto Serif CJK SC",
+                 "Songti SC", "SimSun", "AR PL UMing CN", "Noto Sans CJK SC")
+
+# TeX 发行版的字体不在系统字体目录里，需要单独找一遍
+_EXTRA_FONT_GLOBS = (
+    "~/.local/share/texlive/*/texmf-dist/fonts/opentype/public/lm/lmroman10-regular.otf",
+    "/usr/share/texlive/texmf-dist/fonts/opentype/public/lm/lmroman10-regular.otf",
+    "/usr/share/texmf/fonts/opentype/public/lm/lmroman10-regular.otf",
 )
 
 
-def _use_cjk_font():
+def _register_font_files():
+    """把候选字体文件登记进 matplotlib，返回已登记的字族名。"""
+    import glob
     import os
-    for path in _CJK_CANDIDATES:
+    registered = []
+    paths = []
+    for name in ("RICE_LATIN_FONT", "RICE_CJK_FONT"):
+        if os.environ.get(name):
+            paths.append(os.path.expanduser(os.environ[name]))
+    for pattern in _EXTRA_FONT_GLOBS:
+        paths.extend(sorted(glob.glob(os.path.expanduser(pattern))))
+    for path in paths:
         if os.path.exists(path):
-            font_manager.fontManager.addfont(path)
-            name = font_manager.FontProperties(fname=path).get_name()
-            matplotlib.rcParams["font.family"] = ["sans-serif"]
-            matplotlib.rcParams["font.sans-serif"] = [name, "DejaVu Sans"]
-            # A CJK font has no minus glyph, so the default Unicode minus prints as a box.
-            matplotlib.rcParams["axes.unicode_minus"] = False
-            return name
+            try:
+                font_manager.fontManager.addfont(path)
+                registered.append(font_manager.FontProperties(fname=path).get_name())
+            except Exception:
+                pass
+    return registered
+
+
+def _available(families):
+    """按给定顺序返回第一个系统里真正存在的字族。"""
+    known = {f.name for f in font_manager.fontManager.ttflist}
+    for family in families:
+        if family in known:
+            return family
     return None
 
 
-_use_cjk_font()
+def _use_report_fonts():
+    """让图上的字与报告正文同字体，中西文各自回退。"""
+    extra = _register_font_files()
+    latin = _available(tuple(extra) + _LATIN_FAMILIES) or "DejaVu Serif"
+    cjk = _available(_CJK_FAMILIES) or "DejaVu Sans"
+    # 逐字回退要把字族直接列在 font.family 上，写进 font.serif 只会取其中第一个
+    matplotlib.rcParams["font.family"] = [latin, cjk, "DejaVu Serif"]
+    matplotlib.rcParams["font.serif"] = [latin, cjk, "DejaVu Serif"]
+    # 数学符号用内置的 Computer Modern，与正文公式同源。
+    # 不能设成 custom 再指定西文字体：那样含 $...$ 的行会整体走数学字体，
+    # 其中的中文便无字可用。中文与公式分行写则互不影响。
+    matplotlib.rcParams["mathtext.fontset"] = "cm"
+    matplotlib.rcParams["axes.unicode_minus"] = False
+    return latin, cjk
+
+
+_use_report_fonts()
 # Every figure is set at the full text width, i.e. shrunk from its drawn width of about
 # 9 in to about 6 in, so text is drawn at 1.5 times the size it should read at on the page.
 FONT_SCALE = 1.5
@@ -179,7 +217,7 @@ def cluster_detail_figure(image_bgr, out_name="cluster_detail.png", n_clusters=2
     fig, axes = plt.subplots(len(clusters), 4, figsize=(9, 2.4 * len(clusters)), squeeze=False)
     for row, cluster in enumerate(clusters):
         ratio = cluster["component"]["area"] / pre["calib"]["a0"]
-        _show(axes[row][0], cluster["mask"], f"粘连块（{ratio:.1f} 倍 $A_0$）", "gray")
+        _show(axes[row][0], cluster["mask"], f"粘连块，约 {ratio:.1f} 粒的面积", "gray")
         _show(axes[row][1], cluster["dist"], "距离变换", "magma")
         grown = cv2.dilate((cluster["markers"] > 0).astype(np.uint8),
                            cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7)))
@@ -218,7 +256,9 @@ def _calibration_figure(image_bgr, out_name="calibration.png"):
         ax.axvline(np.log(k * calib["a0"]), color="crimson" if k == 1 else "gray",
                    ls="--" if k == 1 else ":",
                    label=f"$A_0$ = {calib['a0']:.0f} px" if k == 1 else f"{k}$A_0$")
-    ax.set_xlabel("连通域面积的对数 $\\ln S$")
+    # 同一行里既有中文又有 $...$ 时，整行会走数学字体，中文便成了方框，
+    # 所以这类标签一律写成普通文字。
+    ax.set_xlabel("连通域面积的对数 ln S")
     ax.set_ylabel("概率密度")
     ax.legend()
 
@@ -264,8 +304,8 @@ def _error_curve_figure(out_name="error_vs_touching.png"):
 
 
 ROBUSTNESS_AXES = {
-    "blur": ("高斯模糊", "$\\sigma$／粒宽"),
-    "noise": ("加性噪声", "$\\sigma$／灰阶"),
+    "blur": ("高斯模糊", "σ／粒宽"),
+    "noise": ("加性噪声", "σ／灰阶"),
     "contrast": ("对比度压缩", "保留的对比度"),
     "resolution": ("分辨率下降", "降采样倍率"),
 }
