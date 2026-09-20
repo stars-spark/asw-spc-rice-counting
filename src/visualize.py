@@ -14,21 +14,16 @@ from matplotlib import font_manager
 
 # SimHei is the usual choice for Chinese plots and is present on this machine; the others
 # are fallbacks so the module still works elsewhere.
-# Searched in order; the first one present is used. Set RICE_CJK_FONT to override.
 _CJK_CANDIDATES = (
+    "/home/jiale/.local/share/fonts/winfonts/simhei.ttf",
     "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
     "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
-    "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
-    "/usr/share/fonts/truetype/arphic/uming.ttc",
-    "C:/Windows/Fonts/simhei.ttf",
-    "/System/Library/Fonts/PingFang.ttc",
 )
 
 
 def _use_cjk_font():
     import os
-    override = os.environ.get("RICE_CJK_FONT")
-    for path in ((override,) if override else ()) + _CJK_CANDIDATES:
+    for path in _CJK_CANDIDATES:
         if os.path.exists(path):
             font_manager.fontManager.addfont(path)
             name = font_manager.FontProperties(fname=path).get_name()
@@ -78,7 +73,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from skimage.color import label2rgb
-from skimage.measure import regionprops
+from skimage.measure import label, regionprops
 from skimage.segmentation import find_boundaries
 
 from src import calibrate, counter, io_utils, preprocess, segment
@@ -638,6 +633,234 @@ def _abstract_bars(ax):
     ax.legend(frameon=False, labelcolor=INK, ncol=2,
               loc="upper center", bbox_to_anchor=(0.5, -0.20), columnspacing=1.4,
               handlelength=1.2, handletextpad=0.5)
+
+
+# --------------------------------------------------- 与正文对照的局部说明图
+#
+# 这一组图的用途与流程图、结果图不同：正文里凡是用文字描述一种现象或一条判据的
+# 地方，就在旁边给出把该现象放大出来的实图，让读者不必只凭文字想象。
+
+def _crop_around(image, box, pad_ratio=0.45):
+    """按外接框裁一块带留白的局部，返回裁剪图与裁剪框。"""
+    r0, c0, r1, c1 = box
+    pad = int(max(r1 - r0, c1 - c0) * pad_ratio) + 4
+    top, left = max(r0 - pad, 0), max(c0 - pad, 0)
+    bottom = min(r1 + pad, image.shape[0])
+    right = min(c1 + pad, image.shape[1])
+    return image[top:bottom, left:right], (top, left, bottom, right)
+
+
+def touching_problem_figure(out_name="problem_zoom.png"):
+    """引言用图：把'两粒挨在一起就只被计为一粒'这件事放大给读者看。"""
+    from src import synth
+    sample = max(synth.load_d2(), key=lambda s: s.get("touch_prob") or 0)
+    image = io_utils.imread(sample["path"])
+    pre = preprocess.preprocess(image)
+    calib = pre["calib"]
+
+    # 找一个正好由两三粒粘成的连通域，太大的块反而看不清接缝
+    target = min((c for c in calib["components"]
+                  if 1.8 * calib["a0"] <= c["area"] <= 3.2 * calib["a0"]),
+                 key=lambda c: abs(c["area"] - 2.2 * calib["a0"]), default=None)
+    if target is None:
+        return None
+
+    photo, box = _crop_around(image, target["bbox"])
+    labels = calib["labels"][box[0]:box[2], box[1]:box[3]]
+    binary = (labels > 0).astype(np.uint8) * 255
+    tinted = np.dstack([binary] * 3)
+    tinted[labels == target["label"]] = (255, 120, 60)   # 整块同色，说明它是一个连通域
+
+    with plt.rc_context(_fonts(ABSTRACT_FONT_SCALE)):
+        fig, axes = plt.subplots(1, 3, figsize=(9.6, 3.4))
+        _show(axes[0], cv2.cvtColor(photo, cv2.COLOR_BGR2RGB), "原图局部，这里有 2 粒米")
+        _show(axes[1], binary, "二值化之后", "gray")
+        _show(axes[2], tinted, "两粒连成一个连通域，只被计为 1 粒")
+    ensure_dir(FIG_ROOT)
+    fig.savefig(FIG_ROOT / out_name, dpi=DPI, bbox_inches="tight")
+    plt.close(fig)
+    return FIG_ROOT / out_name
+
+
+def binarisation_failure_figure(out_name="binarisation_failure.png"):
+    """3.2 用图：前景取亮还是取暗，都会多出一块巨大的伪前景。
+
+    两种极性各画一张，并把最大连通域涂成橙色，读者一眼能看出多出来的是什么。
+    """
+    sample = io_utils.load_d1()[0]
+    image = io_utils.imread(sample["path"])
+
+    panels = []
+    for polarity in ("bright", "dark"):
+        cand = next(c for c in preprocess.candidate_masks(image, channel_names=("gray",))
+                    if c["method"] == "otsu" and c["polarity"] == polarity)
+        binary = (cand["mask"] > 0).astype(np.uint8)
+        count, labels, stats, _ = cv2.connectedComponentsWithStats(binary, connectivity=8)
+        biggest = int(np.argmax(stats[1:, cv2.CC_STAT_AREA])) + 1 if count > 1 else 0
+        share = stats[biggest, cv2.CC_STAT_AREA] / binary.size if biggest else 0.0
+
+        view = np.dstack([binary * 255] * 3)
+        if biggest:
+            view[labels == biggest] = (255, 140, 60)
+        name = "取亮的一类作前景" if polarity == "bright" else "取暗的一类作前景"
+        panels.append((view, f"{name}\n{count - 1} 个连通域，最大块占 {share * 100:.0f}%"))
+
+    with plt.rc_context(_fonts(ABSTRACT_FONT_SCALE)):
+        fig, axes = plt.subplots(1, 3, figsize=(9.6, 4.0))
+        _show(axes[0], cv2.cvtColor(image, cv2.COLOR_BGR2RGB),
+              "原图\n白米、深色衬布、浅色桌面")
+        for ax, (view, title) in zip(axes[1:], panels):
+            _show(ax, view, title)
+    ensure_dir(FIG_ROOT)
+    fig.savefig(FIG_ROOT / out_name, dpi=DPI, bbox_inches="tight")
+    plt.close(fig)
+    return FIG_ROOT / out_name
+
+
+def touching_criterion_figure(out_name="touching_criterion.png"):
+    """3.4 用图：单粒与粘连块在凸包和最大内切圆上的差别，一眼可辨。"""
+    from skimage.morphology import convex_hull_image
+    from src import synth
+    sample = max(synth.load_d2(), key=lambda s: s.get("touch_prob") or 0)
+    image = io_utils.imread(sample["path"])
+    pre = preprocess.preprocess(image)
+    calib = pre["calib"]
+    band = calibrate.SINGLE_BAND
+
+    single = min((c for c in calib["components"]
+                  if band[0] * calib["a0"] <= c["area"] <= band[1] * calib["a0"]),
+                 key=lambda c: abs(c["area"] - calib["a0"]), default=None)
+    # 取凹口最深的那一块，凸实度接近 1 的粘连块说明不了问题
+    cluster = min((c for c in calib["components"]
+                   if 1.8 * calib["a0"] <= c["area"] <= 3.2 * calib["a0"]),
+                  key=lambda c: c["solidity"], default=None)
+    if single is None or cluster is None:
+        return None
+
+    with plt.rc_context(_fonts(ABSTRACT_FONT_SCALE)):
+        fig, axes = plt.subplots(1, 2, figsize=(9.0, 4.2))
+        for ax, component, name in ((axes[0], single, "单粒"), (axes[1], cluster, "两粒粘连")):
+            piece = (calib["labels"] == component["label"])
+            sub, _ = _crop_around(piece.astype(np.uint8), component["bbox"], pad_ratio=0.3)
+            hull = convex_hull_image(sub > 0)
+            canvas = np.zeros(sub.shape + (3,), np.uint8)
+            canvas[hull] = (250, 226, 180)          # 凸包，浅色
+            canvas[sub > 0] = (60, 90, 160)         # 区域本身
+            dist = cv2.distanceTransform((sub > 0).astype(np.uint8), cv2.DIST_L2, 5)
+            radius = float(dist.max())
+            cy, cx = np.unravel_index(int(np.argmax(dist)), dist.shape)
+            ax.imshow(canvas)
+            circle = plt.Circle((cx, cy), radius, fill=False, color="#D55E00", lw=1.8)
+            ax.add_patch(circle)
+            ax.set_title(f"{name}\n凸实度 {component['solidity']:.2f}，"
+                         f"最大内切圆直径 {2 * radius:.0f} 像素",
+                         fontsize=plt.rcParams["axes.titlesize"])
+            ax.axis("off")
+    ensure_dir(FIG_ROOT)
+    fig.savefig(FIG_ROOT / out_name, dpi=DPI, bbox_inches="tight")
+    plt.close(fig)
+    return FIG_ROOT / out_name
+
+
+def seed_depth_figure(out_name="seed_depth.png"):
+    """3.5 用图：一粒内部是浅坑、两粒之间是深谷，所以该看深度而不是距离。"""
+    from src import synth
+    sample = max(synth.load_d2(), key=lambda s: s.get("touch_prob") or 0)
+    image = io_utils.imread(sample["path"])
+    pre = preprocess.preprocess(image)
+    calib = pre["calib"]
+
+    # 挑一个确实被切成两半的粘连块，只出一个种子的块说明不了"深谷"这件事
+    h = segment.BETA * calib["minor0"] / 2.0
+    chosen = None
+    for component in sorted((c for c in calib["components"]
+                             if 1.6 * calib["a0"] <= c["area"] <= 3.2 * calib["a0"]),
+                            key=lambda c: c["solidity"]):
+        piece = (calib["labels"] == component["label"]).astype(np.uint8)
+        sub, _ = _crop_around(piece, component["bbox"], pad_ratio=0.25)
+        dist = cv2.distanceTransform(sub, cv2.DIST_L2, 5)
+        markers = segment.adaptive_markers(dist, calib["minor0"])
+        if int(markers.max()) >= 2:
+            chosen = (sub, dist, markers)
+            break
+    if chosen is None:
+        return None
+    sub, dist, markers = chosen
+
+    centres = [tuple(np.mean(np.nonzero(markers == i), axis=1))
+               for i in range(1, int(markers.max()) + 1)]
+    peaks = sorted(centres, key=lambda rc: -dist[int(rc[0]), int(rc[1])])[:2]
+    (r0, c0), (r1, c1) = peaks
+    steps = int(max(abs(r1 - r0), abs(c1 - c0))) + 1
+    rows = np.linspace(r0, r1, steps).astype(int)
+    cols = np.linspace(c0, c1, steps).astype(int)
+    profile = dist[rows, cols]
+
+    with plt.rc_context(_fonts(ABSTRACT_FONT_SCALE)):
+        fig, axes = plt.subplots(1, 2, figsize=(9.6, 3.8),
+                                 gridspec_kw={"width_ratios": [1, 1.5]})
+        axes[0].imshow(dist, cmap="magma")
+        axes[0].plot([c0, c1], [r0, r1], color="#00A0B0", lw=1.8, ls="--")
+        axes[0].scatter([c0, c1], [r0, r1], s=26, color="#00A0B0")
+        axes[0].set_title("粘连块的距离变换\n虚线连接两个种子，即右图剖面的取法",
+                          fontsize=plt.rcParams["axes.titlesize"])
+        axes[0].axis("off")
+
+        ax = axes[1]
+        ax.plot(profile, color=SERIES_COLORS["ours"], lw=2.0)
+        ax.axhline(h, color=SERIES_COLORS["baseline"], ls="--", lw=1.6,
+                   label=f"h-maxima 的深度门限 h = {h:.1f}")
+        ax.set_xlabel("自一个种子到另一个种子的位置／像素")
+        ax.set_ylabel("到背景的距离／像素")
+        ax.set_title("两粒之间是一道深谷\n谷底低于门限，两个峰才会被分开",
+                     fontsize=plt.rcParams["axes.titlesize"])
+        _tidy(ax)
+        ax.legend(frameon=False, labelcolor=INK, loc="lower center")
+    ensure_dir(FIG_ROOT)
+    fig.savefig(FIG_ROOT / out_name, dpi=DPI, bbox_inches="tight")
+    plt.close(fig)
+    return FIG_ROOT / out_name
+
+
+def b3_seed_figure(out_name="b3_seeds.png"):
+    """4.3 用图：B3 的全局阈值被硬币抬高，米粒的种子被整片抹掉。"""
+    from src import baselines
+    sample = io_utils.load_d1()[0]
+    image = io_utils.imread(sample["path"])
+    pre = preprocess.preprocess(image)
+    mask, calib = pre["mask"], pre["calib"]
+
+    dist = segment.distance_transform(mask)
+    b3_seeds = (dist > 0.5 * dist.max())
+
+    ours = np.zeros(mask.shape, bool)
+    for component in calib["components"]:
+        if component["area"] < counter.SPECK_RATIO * calib["a0"]:
+            continue
+        r0, c0, r1, c1 = component["bbox"]
+        piece = (calib["labels"][r0:r1, c0:c1] == component["label"]).astype(np.uint8)
+        local = cv2.distanceTransform(piece, cv2.DIST_L2, 5)
+        markers = segment.adaptive_markers(local, calib["minor0"])
+        ours[r0:r1, c0:c1] |= markers > 0
+
+    size = max(5, mask.shape[1] // 40) | 1
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (size, size))
+    views = []
+    for seeds in (b3_seeds, ours):
+        grown = cv2.dilate(seeds.astype(np.uint8), kernel)
+        view = np.dstack([mask // 3] * 3)
+        view[grown > 0] = (255, 60, 60)
+        views.append(view)
+
+    with plt.rc_context(_fonts(ABSTRACT_FONT_SCALE)):
+        fig, axes = plt.subplots(1, 2, figsize=(9.0, 4.4))
+        _show(axes[0], views[0],
+              f"B3 的全局阈值，只剩 {int(label(b3_seeds).max())} 个种子")
+        _show(axes[1], views[1], f"本文的自适应种子，共 {int(label(ours).max())} 个")
+    ensure_dir(FIG_ROOT)
+    fig.savefig(FIG_ROOT / out_name, dpi=DPI, bbox_inches="tight")
+    plt.close(fig)
+    return FIG_ROOT / out_name
 
 
 def main():

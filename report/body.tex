@@ -5,6 +5,14 @@
 
 我先按最基本的思路做了一遍，先转灰度，再用 Otsu 法\cite{otsu1979}自动选一个阈值把米粒和背景分开，再统计连通域的个数，连通域指二值图中连在一起的一片前景像素，正常情况下一粒米就是一个连通域。米粒互不接触时，这一流程没有问题；一旦两粒米挨在一起，它们在二值图中连成一块，只被计为 1 粒，米粒越密，漏计越多。
 实测粘连率 80\% 时平均少数 38.9 粒，这条误差曲线见图 \ref{fig:curve}，也正是本次作业的难点所在。
+图 \ref{fig:problem} 把这件事放大出来，两粒米在二值图里连成一整块，程序看到的就是一个连通域。
+
+\begin{cfigure}
+  \centering
+  \includegraphics[width=\textwidth]{problem_zoom.png}
+  \caption{粘连导致漏计的局部放大。右图中橙色的一整块是一个连通域，其中实际有 2 粒米。}
+  \label{fig:problem}
+\end{cfigure}
 
 我查阅文献时注意到，这个问题在已发表的工作中也常被回避。
 Kurade 等人\cite{kurade2023}的米质检测系统采用“腐蚀取标记 + 注水分割”，
@@ -81,8 +89,18 @@ Gamarra 等人\cite{gamarra2019}先以大小和凸性判断哪些区域需要切
 \subsection{自适应二值化}
 
 起初直接用“根据灰度二值化”的方法，但在真实照片上测试时出了问题。
-白米放在深色衬布上、衬布又铺在浅色桌面上，画面有三个亮度层次，
-而二值化只分两类，结果把整块衬布判成前景，一张图只数出 1 个连通域。
+白米放在深色衬布上、衬布又铺在浅色桌面上，画面有三个亮度层次，而两类阈值只能切一刀，
+无论切在哪里，都会有一整片背景被划进前景。图 \ref{fig:binfail} 是同一张照片的两种取法，
+取亮的一类作前景时桌面连成一块，占画幅的 33\%；取暗的一类时衬布连成一块，占 65\%，
+整张图只剩 6 个连通域。这一块伪前景比所有米粒加起来还大，后面的标定与计数都会被它带偏。
+
+\begin{cfigure}
+  \centering
+  \includegraphics[width=\textwidth]{binarisation_failure.png}
+  \caption{固定用灰度两类阈值的后果，橙色为该二值图中最大的连通域。
+  前景取亮或取暗都会多出一片巨大的伪前景。}
+  \label{fig:binfail}
+\end{cfigure}
 
 由此可见，通道、类数与前景极性都不宜事先指定。
 本文把这三者展开成候选集合，通道取灰度或 HSV 饱和度，阈值取 2 类或 3 类 Otsu，
@@ -143,6 +161,16 @@ def estimate_a0(areas):
 这时改用区域内最大内切圆的直径 $w$，它等于距离变换最大值的两倍。
 两粒米并排时面积翻倍而“厚度”不变，所以改用面积与厚度的比值来判断，实现见代码 \ref{code:touch}。
 一粒大米的这个值约为 1，两粒并排约为 2。
+图 \ref{fig:criterion} 把两种情形并排画出，单粒与其凸包几乎重合，凸实度 0.96；
+两粒粘连处留下明显的凹口，凸实度降到 0.75，而两者的最大内切圆直径分别是 26 与 25 像素，
+相差无几。这正是厚度判据的依据，粘连并不会让米堆变厚。
+
+\begin{cfigure}
+  \centering
+  \includegraphics[width=\textwidth]{touching_criterion.png}
+  \caption{单粒与粘连块的对照。蓝色为区域本身，浅色为凸包多出的部分，橙圈为最大内切圆。}
+  \label{fig:criterion}
+\end{cfigure}
 
 \begin{lstlisting}[float=!htbp, caption={判断一个连通域是不是粘连块}, label={code:touch}]
 def is_touching(c, cal):
@@ -166,6 +194,17 @@ def is_touching(c, cal):
 该看的是深度而非距离。为此对距离变换取 h-maxima，
 把高度不足 $h=\beta b_0/2$ 的小峰抹平，实现见代码 \ref{code:split}。
 此处用短轴 $b_0$，是因为两粒米能靠多近取决于它们的宽度。
+图 \ref{fig:seeddepth} 沿两个种子的连线取了一条剖面，可以看清这里的差别。
+两个峰之间的谷一路降到 0 像素，远低于门限 5.5，因而被判为两粒；
+一粒米内部的起伏则始终在门限之上，不会被切开。
+
+\begin{cfigure}
+  \centering
+  \includegraphics[width=\textwidth]{seed_depth.png}
+  \caption{为什么看深度而不看距离。左为粘连块的距离变换，右为沿两个种子连线的剖面，
+  虚线是 h-maxima 的深度门限。}
+  \label{fig:seeddepth}
+\end{cfigure}
 
 \begin{lstlisting}[float=!htbp, caption={放种子并做注水分割}, label={code:split}]
 def split_cluster(mask, cal, beta=0.45):
@@ -271,7 +310,17 @@ B5 轮廓凹点 + 椭圆拟合\cite{avzalov2025}。
 
 其二，B3 在真实照片上失效，误差达 74.90 粒。它的阈值取自整张图距离变换的最大值，
 而画面中的硬币远大于米粒，把阈值整体抬高，绝大多数米粒的种子因此被抹掉。
+图 \ref{fig:b3seeds} 是同一张照片上两种取种子方式的对照，
+B3 在全图只留下 19 个种子，而本文按连通域分别标定，得到 150 个。
 这从反面说明了尺度为什么必须从米粒自身量起。
+
+\begin{cfigure}
+  \centering
+  \includegraphics[width=\textwidth]{b3_seeds.png}
+  \caption{B3 的全局阈值与本文自适应种子的对照，红色为种子，灰色为二值图。
+  本文对每个连通域分别放种子，粘连块会得到不止一个，因此总数多于米粒数。}
+  \label{fig:b3seeds}
+\end{cfigure}
 
 其三，B5 难以同时兼顾两种尺度。它的凹点检测需要在轮廓上作一个小圆，
 统计圆内属于前景的比例；米粒仅 4 像素宽时，圆几乎盖住整粒米，
