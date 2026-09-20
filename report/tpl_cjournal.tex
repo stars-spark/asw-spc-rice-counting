@@ -147,12 +147,9 @@
 
 \input{body.tex}
 
-% 附录与参考文献接着正文排，不另起页，避免正文末页留下大片空白
-% 参考文献在前、附录在后（GB/T 7713 的次序）。附录是"一段说明 + 两张图"的结构，
-% 由它收尾，末页排得满；双栏参考文献高度减半，不必单占一页。
-\begin{multicols}{2}
-\bibliography{refs}
-\end{multicols}
-
+% 附录接着正文排，不另起页；参考文献单栏、另起一页，放在全文最后，便于翻查。
 \input{appendix.tex}
+
+\clearpage
+\bibliography{refs}
 \end{document}
