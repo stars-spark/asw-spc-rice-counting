@@ -16,6 +16,8 @@ report/*.toc
 report/*.bbl
 report/*.blg
 report/*.synctex.gz
+# 署名信息不随公开仓库分发，缺失时标题下自动不排署名行
+report/author.tex
 
 .vscode/*
 !.vscode/settings.json
