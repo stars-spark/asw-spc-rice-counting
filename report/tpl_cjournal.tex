@@ -44,7 +44,7 @@
 % 缩放会让列数不同的表得到不同的有效字号。max width 仅作兜底，
 % 实测八张表的自然宽度均在版心宽以内，因此无一被缩放。
 \renewcommand{\tabfit}[1]{\adjustbox{max width=\textwidth}%
-  {\footnotesize\setlength{\tabcolsep}{4pt}#1}}
+  {\small\setlength{\tabcolsep}{2.8pt}#1}}
 \renewenvironment{ctable}{\begin{table}[!htbp]\centering}{\end{table}}
 \renewenvironment{cfigure}{\begin{figure}[!htbp]\centering}{\end{figure}}
 
@@ -70,9 +70,10 @@
 \renewcommand{\dbltopfraction}{0.92}
 \renewcommand{\dblfloatpagefraction}{0.80}
 
-\captionsetup{font={footnotesize}, labelfont={sf}, skip=4pt}
+% 图题表题用小五号 9.03 pt，比正文的五号 10.54 pt 低一个字号，是中文期刊的常见做法
+\captionsetup{font={small}, labelfont={sf}, skip=3pt}
 \captionsetup[table]{position=top}
-\captionsetup[lstlisting]{font={footnotesize}, labelfont={sf}, skip=4pt}
+\captionsetup[lstlisting]{font={small}, labelfont={sf}, skip=4pt}
 \setlength{\aboverulesep}{0.4ex}
 \setlength{\belowrulesep}{0.6ex}
 \renewcommand{\arraystretch}{1.1}
@@ -87,8 +88,8 @@
 % 让剩余空间摊到许多段落之间，而不是全部挤在某一个图表的上下，
 % 否则 \flushbottom 会在页面中部留下一条很宽的空白带。
 \setlength{\parskip}{0pt plus 1.2pt}
-\setlength{\intextsep}{9pt plus 2pt minus 2pt}
-\setlength{\textfloatsep}{9pt plus 2pt minus 2pt}
+\setlength{\intextsep}{7pt plus 2pt minus 2pt}
+\setlength{\textfloatsep}{7pt plus 2pt minus 2pt}
 \setlength{\floatsep}{8pt plus 2pt minus 2pt}
 
 \pagestyle{fancy}

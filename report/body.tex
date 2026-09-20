@@ -215,7 +215,7 @@ D3 的木框条比米粒更细长，恰好从“更圆”这一条漏了过去�
 \begin{cfigure}
   \centering
   \includegraphics[width=\textwidth]{cluster_detail.png}
-  \caption{粘连块的处理过程，从左到右依次为粘连块、距离变换、种子和最终结果。}
+  \caption{粘连块的处理过程，自左至右为粘连块、距离变换、种子与最终结果。}
   \label{fig:cluster}
 \end{cfigure}
 
@@ -321,7 +321,7 @@ B5 轮廓凹点 + 椭圆拟合\cite{avzalov2025}。
 
 \begin{ctable}
   \centering
-  \caption{合成粘连图 D2 共 40 张在不同退化下的计数误差。“崩溃”指单张误差超过 100 粒的张数。}
+  \caption{合成粘连图 D2 在不同退化下的计数误差，共 40 张，“崩溃”指单张误差超过 100 粒。}
   \label{tab:robust}
   \tabfit{\input{tables/robustness.tex}}
 \end{ctable}
@@ -372,7 +372,7 @@ SAM 3\cite{sam3} 是一个以文字提示驱动的开放词表分割模型——
 
 \begin{ctable}
   \centering
-  \caption{SAM 3 各提示词在各数据集上分别调到最好时的误差，$\tau^\ast$ 为对应阈值。}
+  \caption{各提示词在各数据集上分别调到最好时的误差，$\tau^\ast$ 为对应阈值。}
   \label{tab:sam3matrix}
   \tabfit{\input{tables/sam3_matrix.tex}}
 \end{ctable}
@@ -414,7 +414,7 @@ SAM 3 在 CPU 上太慢，每组只测了 1 张；CPU 上用 32 位浮点，GPU 
 本文方法的耗时是按第 \ref{sec:gpu} 节优化后测的；为了公平比较，那一节也给出了它的 GPU 版本。
 \begin{ctable}
   \centering
-  \caption{单张图的处理时间和资源占用。显存为分配的峰值；SAM 3 在 CPU 上每组只测 1 张。}
+  \caption{单张图的处理时间和资源占用，显存为分配峰值，SAM 3 在 CPU 上每组只测 1 张。}
   \label{tab:cost}
   \tabfit{\input{tables/cost.tex}}
 \end{ctable}
