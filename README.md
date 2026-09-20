@@ -71,20 +71,21 @@ export RICE_CJK_FONT=/path/to/your/cjk-font.ttf
 
 ## 数据
 
-三组数据都不随仓库分发，请自行获取后放入 `data/`：
-
-| 代号 | 内容 | 来源 |
-|---|---|---|
-| D1 | 真实照片，51 张，含参照硬币 | [Roboflow: rice v1](https://universe.roboflow.com/annotation-gnc0j/rice-nqqbr)（CC BY 4.0） |
-| D3 | 低分辨率 224×224，去重后 719 张 | [Roboflow: RICE v3](https://universe.roboflow.com/ezekiel-se47x/rice-ljhi4)（CC BY 4.0） |
-| D2 的米粒素材 | 单粒米照片（Karacadag 品种） | [Roboflow: RICE v2](https://universe.roboflow.com/thanaree/rice-fgvkm)（CC BY 4.0） |
-
-按 COCO 格式下载后解压到 `data/rice.v1i.coco/`、`data/RICE.v3i.coco/`、`data/RICE.v2i.folder/`。
-
-D2（自制可控粘连合成图）由代码按固定随机种子生成，无需下载：
+四组数据都放在 `data/` 下，许可均为 CC BY 4.0，逐项来源与解压方式见 [`data/README.md`](data/README.md)。
+仓库里保存的是从 Roboflow Universe 导出的原始压缩包，解压到 `data/extracted/` 即可使用：
 
 ```bash
-python -m src.synth          # 生成 40 张合成图与精确真值
+cd data
+unzip -q Rice.v1i.coco.zip      -d extracted/rice.v1i.coco
+unzip -q RICE.v3i.coco.zip      -d extracted/RICE.v3i.coco
+unzip -q RICE.v2i.folder.zip    -d extracted/RICE.v2i.folder
+unzip -q ricecount.v2i.coco.zip -d extracted/ricecount.v2i.coco
+```
+
+D2（自制可控粘连合成图）由代码按固定随机种子生成，重跑可得到相同的 40 张图与真值：
+
+```bash
+python -m src.synth
 ```
 
 ## 复现
@@ -148,4 +149,5 @@ cd report && xelatex tpl_cjournal && bibtex tpl_cjournal && xelatex tpl_cjournal
 
 ## 许可
 
-代码以 MIT 许可发布，见 `LICENSE`。三组数据的版权归原作者，均为 CC BY 4.0，使用时请按其要求署名。
+代码以 MIT 许可发布，见 `LICENSE`。`data/` 下四组数据的版权归原作者，均为 CC BY 4.0，
+按该许可随本仓库一并分发，压缩包内保留了上游的署名信息，使用时请按其要求署名。

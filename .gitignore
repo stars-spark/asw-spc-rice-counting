@@ -2,9 +2,11 @@ __pycache__/
 *.py[cod]
 .ipynb_checkpoints/
 
-# 数据集与中间结果：体积大且可重新获取/生成，见 README
-data/
+# 中间结果可以重新生成，不入库；数据集只保留四个原始压缩包，解压产物不入库
 results/
+data/*
+!data/*.zip
+!data/README.md
 
 # LaTeX 编译中间产物
 report/*.aux
