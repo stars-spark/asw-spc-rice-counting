@@ -17,7 +17,7 @@ METHOD_LABELS = {
     "B3_dist_watershed": r"B3 距离变换注水分割",
     "B4_erosion_watershed": r"B4 腐蚀标记注水分割 \cite{kurade2023}",
     "B5_concave_ellipse": r"B5 凹点+椭圆拟合 \cite{avzalov2025}",
-    "Ours_ASW_SPC": r"\textbf{本文 ASW-SPC}",
+    "Ours_ASW_SPC": r"\textbf{本文方法}",
     "SAM3_teacher": r"SAM 3 零样本",
 }
 

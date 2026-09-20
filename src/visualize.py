@@ -132,7 +132,7 @@ METHOD_CN = {
     "B3_dist_watershed": "B3 距离变换注水分割",
     "B4_erosion_watershed": "B4 腐蚀标记注水分割",
     "B5_concave_ellipse": "B5 凹点+椭圆拟合",
-    "Ours_ASW_SPC": "本文 ASW-SPC",
+    "Ours_ASW_SPC": "本文方法",
 }
 
 FIG_ROOT = RESULTS_ROOT / "figures"
