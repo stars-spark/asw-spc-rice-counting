@@ -915,6 +915,224 @@ def b3_seed_figure(out_name="b3_seeds.png"):
     return FIG_ROOT / out_name
 
 
+# ------------------------------------------------------------------ 方法二用图
+# 这三张图与前面的插图共用 _show、_crop_around 与同一套配色，
+# 密度图一律用 viridis，点标注一律用下面这三种颜色，读者在三张图之间不必重新适应。
+
+STUDENT_PIPELINE_IMAGE = "WIN_20240127_13_47_18_Pro_jpg.rf.0166d2906ccb16ad5d7fc3b284356c7c.jpg"
+STUDENT_WIN_IMAGE = "WIN_20240126_11_50_40_Pro_jpg.rf.6955042005db49274dd07b952ea0d5ec.jpg"
+TEACHER_LABEL_IMAGE = "IMG_5974_JPG.rf.01d37e6f9e5fa5d90b047c1eb803cc7a.jpg"
+
+POINT_COLORS = {"matched": "#009E73", "missed": "#D55E00", "extra": "#0072B2"}
+DENSITY_CMAP = "viridis"
+MASK_CACHE = RESULTS_ROOT / "labels" / "fig_sam3_masks.npz"
+
+
+def _student_model():
+    """载入训练好的学生模型。torch 只在用到时导入，没有显卡的机器照样能跑其余插图。"""
+    import torch
+
+    from src.student import MODEL_ROOT, UNet
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    checkpoint = torch.load(MODEL_ROOT / "student_sam3.pt", map_location=device)
+    model = UNet(width=checkpoint["width"]).to(device)
+    model.load_state_dict(checkpoint["state_dict"])
+    model.eval()
+    return model, device
+
+
+def _student_density(model, image_bgr, device):
+    """学生模型输出的密度图，其积分即为粒数。"""
+    import torch
+    import torch.nn.functional as F
+
+    from src.student import DENSITY_SCALE
+    with torch.no_grad():
+        x = np.ascontiguousarray(image_bgr[:, :, ::-1]).astype(np.float32) / 255.0
+        x = torch.from_numpy(x).permute(2, 0, 1)[None].to(device)
+        pad_h, pad_w = (-x.shape[-2]) % 4, (-x.shape[-1]) % 4
+        if pad_h or pad_w:
+            x = F.pad(x, (0, pad_w, 0, pad_h), mode="reflect")
+        out = model(x)[0, 0].detach().cpu().numpy() / DENSITY_SCALE
+    return out[:image_bgr.shape[0], :image_bgr.shape[1]]
+
+
+def _sam3_masks(sample):
+    """取一张图的 SAM 3 掩膜。算过一次就存下来，插图不必每次都启动教师模型。"""
+    key = sample["file_name"]
+    cache = {}
+    if MASK_CACHE.exists():
+        with np.load(MASK_CACHE) as data:
+            cache = {k: data[k] for k in data.files}
+    if key in cache:
+        return cache[key]
+
+    from src import pseudo
+    from src.teacher_sam import Sam3Teacher
+    teacher = Sam3Teacher()
+    result = teacher.segment(io_utils.imread(sample["path"]),
+                             prompt=pseudo.PROMPT, threshold=pseudo.THRESHOLD)
+    scores = np.asarray(result["scores"].float().cpu())
+    masks = np.asarray(result["masks"].float().cpu())[scores >= pseudo.THRESHOLD]
+    cache[key] = masks.astype(np.uint8)
+    ensure_dir(MASK_CACHE.parent)
+    np.savez_compressed(MASK_CACHE, **cache)
+    return cache[key]
+
+
+def _match_points(truth, pred):
+    """把教师给的点与人工标注配对，返回配对上的、漏掉的与多出的三组下标。
+
+    判据与 pseudo.compare_to_human 相同，容差取人工标注最近邻间距中位数的一半。
+    """
+    if len(truth) == 0 or len(pred) == 0:
+        return [], list(range(len(truth))), list(range(len(pred)))
+    gaps = np.linalg.norm(truth[:, None, :] - truth[None, :, :], axis=2)
+    np.fill_diagonal(gaps, np.inf)
+    limit = float(np.median(gaps.min(axis=1)) / 2.0) if len(truth) > 1 else 10.0
+
+    distance = np.linalg.norm(truth[:, None, :] - pred[None, :, :], axis=2)
+    used, matched, missed = set(), [], []
+    for i in np.argsort(distance.min(axis=1)):
+        order = np.argsort(distance[i])
+        hit = next((int(j) for j in order if j not in used and distance[i, j] <= limit), None)
+        if hit is None:
+            missed.append(int(i))
+        else:
+            used.add(hit)
+            matched.append((int(i), hit))
+    extra = [j for j in range(len(pred)) if j not in used]
+    return matched, missed, extra
+
+
+def _scatter_points(ax, points, colour, size=14, marker="o"):
+    if len(points):
+        ax.scatter(points[:, 1], points[:, 0], s=size, marker=marker,
+                   facecolors="none", edgecolors=colour, linewidths=1.1)
+
+
+def student_pipeline_figure(out_name="student_pipeline.png", file_name=None):
+    """方法二的四步：教师的掩膜、掩膜质心、由点摊成的密度图、学生的预测。"""
+    from src import pseudo
+    from src.student import density_map
+
+    samples = {s["file_name"]: s for s in io_utils.load_d3()}
+    name = file_name or STUDENT_PIPELINE_IMAGE
+    sample = samples[name]
+    image = io_utils.imread(sample["path"])
+    rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    points = np.asarray(pseudo.load("d3_sam3")[name], dtype=np.float32)
+
+    try:
+        masks = _sam3_masks(sample)
+    except Exception:
+        masks = None
+
+    target = density_map(image.shape, points)
+    model, device = _student_model()
+    predicted = _student_density(model, image, device)
+
+    fig, axes = plt.subplots(1, 5, figsize=(9, 2.7))
+    _show(axes[0], rgb, "(a) 输入图像")
+
+    if masks is not None and len(masks):
+        overlay = label2rgb(render_labels_from_masks(masks, image.shape[:2]),
+                            image=rgb, bg_label=0, alpha=0.45)
+        _show(axes[1], overlay, f"(b) SAM 3 的掩膜\n{len(masks)} 个")
+    else:
+        _show(axes[1], rgb, "(b) SAM 3 的掩膜")
+
+    _show(axes[2], rgb, f"(c) 取每个掩膜的质心\n得到 {len(points)} 个点")
+    _scatter_points(axes[2], points, POINT_COLORS["matched"])
+    _show(axes[3], target, f"(d) 摊成密度图\n积分 {target.sum():.1f}", DENSITY_CMAP)
+    _show(axes[4], predicted, f"(e) 学生的预测\n积分 {predicted.sum():.1f}", DENSITY_CMAP)
+
+    fig.tight_layout()
+    ensure_dir(FIG_ROOT)
+    fig.savefig(FIG_ROOT / out_name, dpi=DPI, bbox_inches="tight")
+    plt.close(fig)
+    return FIG_ROOT / out_name
+
+
+def render_labels_from_masks(masks, shape):
+    from src import render
+    return render.masks_to_labels(masks.astype(np.float32), shape)
+
+
+def teacher_labels_figure(out_name="teacher_labels.png", file_name=None):
+    """教师的点与人工标注的对照，右侧放大一处漏检。"""
+    from src import pseudo
+
+    name = file_name or TEACHER_LABEL_IMAGE
+    human = pseudo.load("d1_human")
+    teacher = pseudo.load("d1_sam3")
+    if name not in human:
+        name = sorted(human)[0]
+    sample = {s["file_name"]: s for s in io_utils.load_d1()}[name]
+    image = cv2.cvtColor(io_utils.imread(sample["path"]), cv2.COLOR_BGR2RGB)
+
+    truth = np.asarray(human[name], dtype=np.float32)
+    pred = np.asarray(teacher[name], dtype=np.float32)
+    matched, missed, extra = _match_points(truth, pred)
+
+    fig, axes = plt.subplots(1, 2, figsize=(9, 3.6))
+    _show(axes[0], image,
+          f"人工标注 {len(truth)} 粒，SAM 3 给出 {len(pred)} 粒\n"
+          f"配对上 {len(matched)} 粒，漏 {len(missed)} 粒，多 {len(extra)} 点")
+    _scatter_points(axes[0], truth[[i for i, _ in matched]], POINT_COLORS["matched"], size=10)
+    _scatter_points(axes[0], truth[missed], POINT_COLORS["missed"], size=40)
+    _scatter_points(axes[0], pred[extra], POINT_COLORS["extra"], size=40, marker="s")
+
+    focus = truth[missed[0]] if missed else (truth[extra[0]] if extra else truth[0])
+    half = max(image.shape[0], image.shape[1]) // 12
+    box = (int(focus[0] - half), int(focus[1] - half),
+           int(focus[0] + half), int(focus[1] + half))
+    crop, (top, left, bottom, right) = _crop_around(image, box, pad_ratio=0.0)
+    _show(axes[1], crop, "局部放大\n橙圈为漏掉的米粒，蓝方块为多给的点")
+    inside = lambda pts: np.array([p for p in pts
+                                   if top <= p[0] < bottom and left <= p[1] < right],
+                                  dtype=np.float32).reshape(-1, 2) - [top, left]
+    _scatter_points(axes[1], inside(truth[[i for i, _ in matched]]),
+                    POINT_COLORS["matched"], size=60)
+    _scatter_points(axes[1], inside(truth[missed]), POINT_COLORS["missed"], size=90)
+    _scatter_points(axes[1], inside(pred[extra]), POINT_COLORS["extra"], size=90, marker="s")
+
+    fig.tight_layout()
+    ensure_dir(FIG_ROOT)
+    fig.savefig(FIG_ROOT / out_name, dpi=DPI, bbox_inches="tight")
+    plt.close(fig)
+    return FIG_ROOT / out_name
+
+
+def student_vs_geometric_figure(out_name="student_vs_ours.png", file_name=None):
+    """同一张低分辨率图上，方法一把木框亮边算成了米，学生模型没有。"""
+    from src import render
+
+    samples = {s["file_name"]: s for s in io_utils.load_d3()}
+    name = file_name or STUDENT_WIN_IMAGE
+    sample = samples[name]
+    image = io_utils.imread(sample["path"])
+    rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+    labels, info, total, _ = counter.label_image(image)
+    drawn = cv2.cvtColor(render.draw(image, labels, info, banner_lines=None),
+                         cv2.COLOR_BGR2RGB)
+    model, device = _student_model()
+    predicted = _student_density(model, image, device)
+
+    fig, axes = plt.subplots(1, 3, figsize=(9, 3.3))
+    _show(axes[0], rgb, f"输入图像，真值 {sample['gt_count']} 粒")
+    _show(axes[1], drawn, f"方法一数出 {total} 粒")
+    _show(axes[2], predicted,
+          f"方法二的密度图，积分 {predicted.sum():.1f} 粒", DENSITY_CMAP)
+
+    fig.tight_layout()
+    ensure_dir(FIG_ROOT)
+    fig.savefig(FIG_ROOT / out_name, dpi=DPI, bbox_inches="tight")
+    plt.close(fig)
+    return FIG_ROOT / out_name
+
+
 def main():
     from src import synth
 
@@ -940,6 +1158,9 @@ def main():
         error_curve_figure(),
         scatter_figure(),
         student_bars_figure(),
+        teacher_labels_figure(),
+        student_pipeline_figure(),
+        student_vs_geometric_figure(),
     ]
     for path in outputs:
         if path:

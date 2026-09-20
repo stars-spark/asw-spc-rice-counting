@@ -557,12 +557,30 @@ OpenCV 的距离变换是近似算法，GPU 版用的是精确欧氏距离变换
 拿它与人工标注逐点匹配，教师给出的点在 D3 上准确率 0.993、召回率 1.000、计数误差 0.10 粒，
 在 D1 上依次为 0.957、0.967 与 3.29 粒。这两组数据上的伪标签足够干净。
 人工标注全程不参与训练，只用于测试。学生的成绩因此仍是拿人工标注量出来的。
+图 \ref{fig:teacherlabel} 是其中一张照片的逐点对照，漏掉的和多给的都是少数。
+
+\begin{cfigure}
+  \centering
+  \includegraphics[width=\textwidth]{teacher_labels.png}
+  \caption{SAM 3 给出的点与人工标注的对照。绿圈为两者配对上的米粒，
+  橙圈为 SAM 3 漏掉的，蓝方块为它在同一粒米上多给的点。}
+  \label{fig:teacherlabel}
+\end{cfigure}
 
 \textbf{学生学什么。} 学的不是分割，而是密度图，即在每个米粒处放一个高斯，
 整张图的积分即为粒数。这样安排有两点考虑。其一，米粒只有 4 像素宽，要求网络给出清晰的实例边界并不现实。
 让它在米粒处“鼓起一个包”却是可行的。
 其二，损失函数不依赖于把相邻两粒分开，而那恰是几何方法最吃力之处。
 高斯的宽度按每张图自身的米粒间距确定，因此 4 像素与 25 像素的米粒在网络看来尺度相当。
+从教师的掩膜到学生的预测，整条流程见图 \ref{fig:studentpipe}。
+
+\begin{cfigure}
+  \centering
+  \includegraphics[width=\textwidth]{student_pipeline.png}
+  \caption{方法二的流程。教师给出掩膜，取质心得到点标签，
+  每个点摊成一个高斯就是训练目标，学生学着把这张密度图预测出来，其积分即为粒数。}
+  \label{fig:studentpipe}
+\end{cfigure}
 
 \textbf{网络与训练。} 三层 U-Net，27 万参数，权重文件 1 MB。
 按 7:1:2 划分训练、验证与测试集，划分以源图为单位，
@@ -588,6 +606,19 @@ D1 上亦更好，为 3.91 对 4.90 粒，D2 上两者相当。
 每张图耗时 2 至 25 ms，比 SAM 3 快 8 到 100 倍，见表 \ref{tab:cost}。
 更要紧的是不必挑选提示词。SAM 3 换一个提示词就可能一粒也检不出，
 学生则把选定的那套行为固化了下来。
+
+图 \ref{fig:studentwin} 是 D3 上的一个例子，也正是第 \ref{sec:student} 节开头那类失败。
+画面左侧的木框亮边被方法一当成一处粘连块，按面积折算成 8 粒，全图数出 24 粒，真值为 14 粒。
+学生模型的密度图上，木框那一带没有鼓起任何包，积分得 14.2 粒。
+它没有用到更多的形状判据，只是从教师那里学到了米粒该是什么样子。
+
+\begin{cfigure}
+  \centering
+  \includegraphics[width=\textwidth]{student_vs_ours.png}
+  \caption{同一张低分辨率图上两种方法的对照。中图里左侧的虚线框是方法一把木框亮边
+  当作粘连块后按面积折算的 8 粒，右图为学生模型预测的密度图。}
+  \label{fig:studentwin}
+\end{cfigure}
 
 \subsection{走过的弯路，以及必须说清的前提}
 
