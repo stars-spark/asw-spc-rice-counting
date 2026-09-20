@@ -1,0 +1,16 @@
+# 核心（CPU 即可运行）
+numpy>=1.26
+opencv-python>=4.9
+scikit-image>=0.22
+scipy>=1.11
+pandas>=2.0
+matplotlib>=3.8
+threadpoolctl>=3.2
+
+# 可选：与 SAM 3 的对照实验、学生模型（需要 GPU 更实用）
+# torch>=2.4
+# transformers>=4.57
+
+# 可选：GPU 版几何方法（CUDA 13；CUDA 12 请换 cupy-cuda12x / cucim-cu12）
+# cupy-cuda13x
+# cucim-cu13

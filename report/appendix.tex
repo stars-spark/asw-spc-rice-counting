@@ -1,0 +1,83 @@
+\appendix
+% 附录每节是“一段说明 + 两张图”，就地排版让图紧跟说明，不会被甩到别的小节里
+\renewenvironment{cfigure}{\begin{figure}[H]\centering}{\end{figure}}
+
+\section{更多计数结果}
+\label{app:renders}
+
+每组数据按顺序等间隔取两个场景，而非择优挑选，因此呈现的是方法的一般表现。
+左为本文方法、右为 SAM 3，画法与正文图 \ref{fig:render_d1} 相同。
+
+\subsection{D1：真实照片}
+
+两个场景（图 \ref{fig:app_d1}、图 \ref{fig:app_d1b}）本文方法分别数出 99 粒（真值 98）和 82 粒（真值 82）。
+硬币在两种方法中都未被计入，但途径不同：本文方法靠第 \ref{sec:correct} 节的异物判据将其剔除，
+SAM 3 则是本就知道硬币不是米。第一个场景多出的那一粒来自硬币边缘的一小块反光，
+其面积与形状都接近单粒米，几何判据没有理由拒绝它。
+
+\begin{cfigure}
+  \includegraphics[width=\textwidth]{appendix_d1_a.png}
+  \caption{真实照片（D1）场景一，左为本文方法、右为 SAM 3。}
+  \label{fig:app_d1}
+\end{cfigure}
+
+\begin{cfigure}
+  \includegraphics[width=\textwidth]{appendix_d1_b.png}
+  \caption{真实照片（D1）场景二，左为本文方法、右为 SAM 3。}
+  \label{fig:app_d1b}
+\end{cfigure}
+
+\subsection{D2：合成粘连图}
+
+第一个场景（图 \ref{fig:app_d2}）没有粘连，两种方法都数出 91 粒，和真值一致。
+第二个场景粘连率 40\%，真值 93 粒，本文方法 92 粒、SAM 3 94 粒。
+图 \ref{fig:app_d2b} 中可以看到十余个虚线框，说明相当一部分粘连块的粒数是按面积补出的，
+并非真正切开。
+
+\begin{cfigure}
+  \includegraphics[width=\textwidth]{appendix_d2_a.png}
+  \caption{合成粘连图（D2）中不粘连的场景，左为本文方法、右为 SAM 3。}
+  \label{fig:app_d2}
+\end{cfigure}
+
+\begin{cfigure}
+  \includegraphics[width=\textwidth]{appendix_d2_b.png}
+  \caption{合成粘连图（D2）中粘连率 40\% 的场景，左为本文方法、右为 SAM 3。}
+  \label{fig:app_d2b}
+\end{cfigure}
+
+\subsection{D3：低分辨率}
+
+两个场景（图 \ref{fig:app_d3}、图 \ref{fig:app_d3b}）真值都是 15 粒，本文方法分别数出 14 和 16 粒，SAM 3 的轮廓几乎贴合每一粒米。
+少数的那一粒颜色偏暗，二值化时没分出来；多数的那一个来自木框边缘的亮块。
+米粒只有 4 像素宽时，形状所能提供的信息已经很少，这也是本文方法与 SAM 3 差距最大的一组。
+
+\begin{cfigure}
+  \includegraphics[width=\textwidth]{appendix_d3_a.png}
+  \caption{低分辨率图（D3）场景一，左为本文方法、右为 SAM 3。}
+  \label{fig:app_d3}
+\end{cfigure}
+
+\begin{cfigure}
+  \includegraphics[width=\textwidth]{appendix_d3_b.png}
+  \caption{低分辨率图（D3）场景二，左为本文方法、右为 SAM 3。}
+  \label{fig:app_d3b}
+\end{cfigure}
+
+\section{代码、数据与复现方式}
+\label{app:repro}
+
+这一节交代程序与数据的来源，便于老师核查。
+
+\textbf{数据。} D1、D3 以及 D2 所用的单粒米素材均取自 Roboflow Universe 上的公开数据集
+（CC BY 4.0 许可）\cite{ds_d1,ds_d3,ds_grains}；D2 由 \texttt{src/synth.py} 按固定随机种子生成，
+重跑可得到相同的 40 张图与真值。第 \ref{sec:limit} 节提到的直尺照片来自文献\cite{ds_ruler}，
+未用作测试集。
+
+\textbf{代码与复现。} 环境为 Python 3.13，依赖 OpenCV、scikit-image 与 SciPy，
+学生模型与 SAM 3 另需 PyTorch。各步骤分别实现于 \texttt{preprocess.py}（二值化与候选选择）、
+\texttt{calibrate.py}（尺度自标定）、\texttt{segment.py} 与 \texttt{correct.py}（切分与复核）、
+\texttt{counter.py}（主流程）、\texttt{baselines.py}（五种对比方法）。
+运行 \texttt{python -m src.evaluate}、\texttt{src.ablation}、\texttt{src.robustness}、
+\texttt{src.cost}、\texttt{src.student -{}-eval} 可分别重新生成正文各表，
+表中数字均由脚本直接产出，未经手工修改。

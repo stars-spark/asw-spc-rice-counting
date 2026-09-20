@@ -1,0 +1,157 @@
+% 模板 D：中文科技期刊单栏风格。
+% 单栏使每张插图都能占满一整行文字的宽度，图上的坐标轴与标注因而最易辨认；
+% 左右边距取 2.8 cm，行宽 15.4 cm（约 41 个汉字），是单栏下仍便于阅读的长度。
+\documentclass[10.5pt, a4paper]{ctexart}
+
+\usepackage[a4paper, top=2.6cm, bottom=2.6cm, left=2.8cm, right=2.8cm]{geometry}
+\input{common.tex}
+\usepackage[sort&compress]{gbt7714}
+\bibliographystyle{gbt7714-numerical}
+% 参考文献按惯例用小五号，条目间距收紧
+\renewcommand{\bibfont}{\zihao{-5}}
+\setlength{\bibsep}{0pt plus 0.5pt}
+% 在每个 \section 前设置浮动体屏障，避免浮动体跨节积压后被集中刷成整页图。
+\usepackage[section]{placeins}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage[hidelinks]{hyperref}
+
+\setCJKmainfont{FZShuSong-Z01}[BoldFont=FZHei-B01, ItalicFont=FZKai-Z03]
+\setCJKsansfont{FZHei-B01}
+% 代码：英文用 Consolas，中文注释用黑体
+\setmonofont{Consolas}[Scale=0.95]
+\setCJKmonofont{FZHei-B01}
+\usepackage{listings}
+\lstset{
+  language=Python,
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{blue!70!black}\bfseries,
+  commentstyle=\color{green!40!black},
+  stringstyle=\color{red!55!black},
+  numbers=left, numberstyle=\scriptsize\color{gray}, numbersep=8pt,
+  backgroundcolor=\color{gray!6},
+  frame=tb, rulecolor=\color{gray!50}, framerule=0.6pt,
+  framesep=4pt, xleftmargin=2em, framexleftmargin=1.6em,
+  columns=flexible, keepspaces=true, showstringspaces=false,
+  breaklines=true, captionpos=t,
+  aboveskip=8pt, belowskip=6pt,
+}
+\renewcommand{\lstlistingname}{代码}
+\linespread{1.15}
+
+% 插图一律占满版心宽度（即一整行文字的宽度），见 body.tex 与 appendix.tex 中的
+% width=\textwidth。表格统一为 \footnotesize 与 4pt 列间距，不做整体缩放——
+% 缩放会让列数不同的表得到不同的有效字号。max width 仅作兜底，
+% 实测八张表的自然宽度均在版心宽以内，因此无一被缩放。
+\renewcommand{\tabfit}[1]{\adjustbox{max width=\textwidth}%
+  {\footnotesize\setlength{\tabcolsep}{4pt}#1}}
+\renewenvironment{ctable}{\begin{table}[!htbp]\centering}{\end{table}}
+\renewenvironment{cfigure}{\begin{figure}[!htbp]\centering}{\end{figure}}
+
+% 正文为五号；一级标题小四黑体、二级标题五号黑体，形成由大到小的层次。
+% 原先一级与正文同号、二级比正文更小，读起来层级是反的。
+\ctexset{
+  section/format       = {\centering\sffamily\zihao{-4}},
+  section/beforeskip   = 2.4ex plus .4ex,
+  section/afterskip    = 1.4ex plus .2ex,
+  subsection/format    = {\sffamily\zihao{5}},
+  subsection/beforeskip= 1.8ex plus .3ex,
+  subsection/afterskip = 0.9ex plus .2ex,
+}
+
+% 放宽浮动体与正文的共存条件，避免出现只有图、没有文字的整页
+\setcounter{topnumber}{2}
+\setcounter{bottomnumber}{2}
+\setcounter{totalnumber}{4}
+\renewcommand{\topfraction}{0.92}
+\renewcommand{\bottomfraction}{0.7}
+\renewcommand{\textfraction}{0.08}
+\renewcommand{\floatpagefraction}{0.80}
+\renewcommand{\dbltopfraction}{0.92}
+\renewcommand{\dblfloatpagefraction}{0.80}
+
+\captionsetup{font={footnotesize}, labelfont={sf}, skip=4pt}
+\captionsetup[table]{position=top}
+\captionsetup[lstlisting]{font={footnotesize}, labelfont={sf}, skip=4pt}
+\setlength{\aboverulesep}{0.4ex}
+\setlength{\belowrulesep}{0.6ex}
+\renewcommand{\arraystretch}{1.1}
+
+% flafter 禁止浮动体出现在提到它的文字之前，因此图表总是紧跟其说明文字；
+% 但仍允许它在本页放不下时移到次页顶部，这样页面可以排满，不会因为强行就地排版
+% 而在页尾留下一大块空白。\flushbottom 使各页底端对齐。
+\usepackage{flafter}
+\usepackage{multicol}
+\usepackage{tocloft}
+\flushbottom
+% 让剩余空间摊到许多段落之间，而不是全部挤在某一个图表的上下，
+% 否则 \flushbottom 会在页面中部留下一条很宽的空白带。
+\setlength{\parskip}{0pt plus 1.2pt}
+\setlength{\intextsep}{9pt plus 2pt minus 2pt}
+\setlength{\textfloatsep}{9pt plus 2pt minus 2pt}
+\setlength{\floatsep}{8pt plus 2pt minus 2pt}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[C]{\zihao{6}\sffamily 数字图像处理课程作业}
+\fancyfoot[C]{\zihao{6}\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\begin{document}
+
+\begin{center}
+  {\sffamily\zihao{3} 基于尺度自标定与形状先验校正的粘连米粒计数方法}
+  \par\vspace{1.2ex}
+  {\zihao{-4} 数字图像处理课程作业}
+\end{center}
+\vspace{1.5ex}
+
+% 摘要与关键词按中文期刊惯例：小五号、左右缩进，标签用黑体，内容接排不分段。
+\begingroup
+\zihao{-5}
+\leftskip=2em \rightskip=2em
+\parindent=0pt
+\noindent{\sffamily 摘\quad 要：}\input{abstract.tex}
+
+\vspace{0.6ex}
+\noindent{\sffamily 关键词：}\input{keywords.tex}
+\par
+\endgroup
+\vspace{2.5ex}
+
+% 首页图文摘要：题目问"数出多少粒"与"解决连体计数不准"，这两幅各答一问。
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{graphical_abstract.png}
+  \caption{上排为方法一在真实照片与重度粘连合成图上的逐粒计数结果；
+  下排左为计数误差随粘连率的变化，右为四种做法在同一批测试图上的平均绝对误差。}
+  \label{fig:abstract}
+\end{figure}
+
+\vspace{1ex}
+
+% 目录单独占一页：标题与摘要在前一页结束，正文从目录之后另起一页
+\setcounter{tocdepth}{2}
+\clearpage
+\begingroup
+\zihao{5}
+\renewcommand{\contentsname}{\normalfont\sffamily\zihao{-4}目\quad 录}
+\setlength{\cftbeforesecskip}{4pt plus 2pt}
+\setlength{\cftbeforesubsecskip}{1.5pt plus 1pt}
+\setlength{\cftsecindent}{0pt}
+\setlength{\cftsubsecindent}{1.6em}
+\tableofcontents
+\endgroup
+\clearpage
+
+\input{body.tex}
+
+% 附录与参考文献接着正文排，不另起页，避免正文末页留下大片空白
+% 参考文献在前、附录在后（GB/T 7713 的次序）。附录是"一段说明 + 两张图"的结构，
+% 由它收尾，末页排得满；双栏参考文献高度减半，不必单占一页。
+\begin{multicols}{2}
+\bibliography{refs}
+\end{multicols}
+
+\input{appendix.tex}
+\end{document}

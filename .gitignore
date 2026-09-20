@@ -1,0 +1,19 @@
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+
+# 数据集与中间结果：体积大且可重新获取/生成，见 README
+data/
+results/
+
+# LaTeX 编译中间产物
+report/*.aux
+report/*.log
+report/*.out
+report/*.toc
+report/*.bbl
+report/*.blg
+report/*.synctex.gz
+
+.vscode/*
+!.vscode/settings.json

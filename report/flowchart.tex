@@ -1,0 +1,56 @@
+% 方法流程图。左列为整图处理，右列为对每个连通域的判断与计数。
+% 节点只设最小宽度、不设 text width，避免中文在定宽盒子里被两端对齐拉开字距。
+\begin{tikzpicture}[
+  font=\small,
+  node distance=5mm and 7mm,
+  box/.style={draw, rounded corners=2pt, align=center, fill=blue!6,
+              minimum height=9mm, minimum width=44mm, inner sep=3pt},
+  dec/.style={draw, diamond, aspect=2.8, align=center, fill=orange!10,
+              inner sep=1pt, minimum width=36mm},
+  side/.style={draw, rounded corners=2pt, align=center, fill=gray!10,
+               minimum height=8mm, minimum width=24mm, inner sep=3pt},
+  io/.style={box, fill=green!10},
+  arr/.style={-{Stealth[length=2mm]}, thick},
+  lab/.style={font=\footnotesize, inner sep=1.5pt},
+]
+  % ---- 左列：整图处理 ----
+  \node[io]  (in)    {输入图像};
+  \node[box, below=of in]    (bin)   {多候选二值化\\通道 × 类数 × 前景亮暗};
+  \node[box, below=of bin]   (score) {按 $\mathrm{score}=N\sub{单}A_0\gamma$\\选出得分最高的候选};
+  \node[dec, below=of score] (chk)   {合理性检查\\通过？};
+  \node[box, below=7mm of chk] (cal) {尺度自标定\\量出 $A_0$、$b_0$、$\rho_0$、$w_0$};
+
+  \draw[arr] (in) -- (bin);
+  \draw[arr] (bin) -- (score);
+  \draw[arr] (score) -- (chk);
+  \draw[arr] (chk) -- node[lab, right] {是} (cal);
+  \draw[arr] (chk.west) -- node[lab, above] {否} ++(-6mm,0)
+             |- (score.west);
+  \node[lab, rotate=90, anchor=south]
+       at ($($(chk.west)+(-6mm,0)$)!0.5!($(chk.west |- score.west)+(-6mm,0)$)$) {换下一候选};
+
+  % ---- 右列：逐个连通域 ----
+  \node[box, right=29.4mm of in]  (comp) {逐个取出连通域};
+  \node[dec, below=of comp]     (d1)   {面积 $<0.3A_0$？};
+  \node[dec, below=of d1]       (d2)   {是异物？};
+  \node[dec, below=of d2]       (d3)   {是粘连块？};
+  \node[box, below=of d3]       (ws)   {h-maxima 放种子\\注水分割切开};
+  \node[box, below=of ws]       (fix)  {碎块合并；仍大且凹\\则按面积补数};
+  \node[io, below=of fix]       (sum)  {累加得到总粒数};
+
+  \node[side, right=of d1] (s1) {碎屑，忽略};
+  \node[side, right=of d2] (s2) {不计数};
+  \node[side, right=of d3] (s3) {计 1 粒};
+
+  \draw[arr] (cal.east) -- ++(8mm,0) |- (comp.west);
+  \draw[arr] (comp) -- (d1);
+  \draw[arr] (d1) -- node[lab, right] {否} (d2);
+  \draw[arr] (d2) -- node[lab, right] {否} (d3);
+  \draw[arr] (d3) -- node[lab, right] {是} (ws);
+  \draw[arr] (ws) -- (fix);
+  \draw[arr] (fix) -- (sum);
+  \draw[arr] (d1) -- node[lab, above] {是} (s1);
+  \draw[arr] (d2) -- node[lab, above] {是} (s2);
+  \draw[arr] (d3) -- node[lab, above] {否} (s3);
+  \draw[arr] (s3) |- (sum.east);
+\end{tikzpicture}
