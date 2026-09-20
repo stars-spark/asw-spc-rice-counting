@@ -629,6 +629,18 @@ def _abstract_curve(ax):
     ax.legend(frameon=False, loc="upper left", labelcolor=INK)
 
 
+def student_bars_figure(out_name="student_bars.png"):
+    """把图文摘要里的柱状图单独出一张，供仓库的 README 使用。"""
+    with plt.rc_context(_fonts(PLOT_FONT_SCALE)):
+        fig, ax = plt.subplots(figsize=(7.0, 4.0))
+        _abstract_bars(ax)
+        fig.tight_layout()
+        ensure_dir(FIG_ROOT)
+        fig.savefig(FIG_ROOT / out_name, dpi=DPI, bbox_inches="tight")
+        plt.close(fig)
+    return FIG_ROOT / out_name
+
+
 def _abstract_bars(ax):
     """四种做法在同一批测试图上的误差。
 
@@ -927,6 +939,7 @@ def main():
         calibration_figure(io_utils.imread(mixed["path"]), "calibration.png"),
         error_curve_figure(),
         scatter_figure(),
+        student_bars_figure(),
     ]
     for path in outputs:
         if path:
