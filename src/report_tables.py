@@ -18,7 +18,7 @@ METHOD_LABELS = {
     "B4_erosion_watershed": r"B4 腐蚀标记注水分割 \cite{kurade2023}",
     "B5_concave_ellipse": r"B5 凹点+椭圆拟合 \cite{avzalov2025}",
     "Ours_ASW_SPC": r"\textbf{本文 ASW-SPC}",
-    "SAM3_teacher": r"SAM 3（零样本）",
+    "SAM3_teacher": r"SAM 3 零样本",
 }
 
 METHOD_ORDER = list(METHOD_LABELS)
@@ -134,11 +134,11 @@ def ablation_table():
     table = pd.read_csv(METRICS_ROOT / "ablation.csv")
     labels = {
         "full method": r"完整方法",
-        "no self-calibration (A0 = dataset mean)": r"去掉尺度自标定（$A_0$ 取数据集均值）",
+        "no self-calibration (A0 = dataset mean)": r"去掉尺度自标定，$A_0$ 取数据集均值",
         "no shape-prior correction (M5)": r"去掉形状先验校正",
         "no foreign-object rejection": r"去掉异物剔除",
         "foreign rejection without the width test": r"异物剔除去掉宽度判据",
-        "foreign test also requiring roundness": r"异物判据附加“更圆”条件（最初写法）",
+        "foreign test also requiring roundness": r"异物判据附加“更圆”条件，即最初写法",
         "no measurement-reliability gate": r"去掉可测量性门限",
         "reliability gate abstains instead of using width excess":
             r"门限触发时弃权（而非改用宽度过剩量）",
@@ -329,7 +329,7 @@ def cost_table():
     lines = [
         r"\begin{tabular}{lrrrrr}",
         r"\toprule",
-        r"项目 & 本文（CPU） & 本文（GPU） & 学生（GPU） & SAM 3（GPU） & SAM 3（CPU） \\",
+        r"项目 & 本文 CPU & 本文 GPU & 学生模型 GPU & SAM 3 GPU & SAM 3 CPU \\",
         r"\midrule",
         r"D1 每张耗时／s & " + cells(lambda k: secs(k, "d1_s")) + r" \\",
         r"D2 每张耗时／s & " + cells(lambda k: secs(k, "d2_s")) + r" \\",
@@ -358,8 +358,8 @@ def student_table():
     if not path.exists():
         return None
     table = pd.read_csv(path)
-    methods = [("b1", "直接数连通域"), ("ours", "方法一"), ("student", "方法二：学生模型"),
-               ("sam3", "SAM 3（教师）")]
+    methods = [("b1", "直接数连通域"), ("ours", "方法一"), ("student", "方法二 学生模型"),
+               ("sam3", "SAM 3 教师")]
     methods = [(k, label) for k, label in methods if k in table.columns]
 
     lines = [r"\begin{tabular}{lr" + "r" * len(methods) + "}", r"\toprule",
