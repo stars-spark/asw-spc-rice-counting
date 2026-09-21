@@ -116,7 +116,9 @@
 \begingroup
 \zihao{-5}
 \leftskip=2em \rightskip=2em
-\parindent=0pt
+% 摘要分段后，每段开头缩进两个字；\ccwd 是当前字号下一个汉字的宽度。
+% 第一段紧跟在「摘要」标签后面，标签本身就是段首，所以不再缩进。
+\parindent=2\ccwd
 \noindent{\sffamily 摘\quad 要：}\input{abstract.tex}
 
 \vspace{0.6ex}
