@@ -156,7 +156,7 @@ python -m src.batch 图片目录 --out counts.csv
 `report/` 下是课程报告的 LaTeX 源码与编译好的 PDF。需要 XeLaTeX 与 ctex：
 
 ```bash
-cd report && xelatex tpl_cjournal && bibtex tpl_cjournal && xelatex tpl_cjournal && xelatex tpl_cjournal
+cd report && xelatex 基于尺度自标定与形状先验校正的粘连米粒计数方法 && bibtex 基于尺度自标定与形状先验校正的粘连米粒计数方法 && xelatex 基于尺度自标定与形状先验校正的粘连米粒计数方法 && xelatex 基于尺度自标定与形状先验校正的粘连米粒计数方法
 ```
 
 ## 许可

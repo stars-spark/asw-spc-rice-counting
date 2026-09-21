@@ -13,7 +13,7 @@ matplotlib.use("Agg")
 from matplotlib import font_manager
 
 # 图上的字与正文保持一致：西文用 Latin Modern Roman，中文用方正书宋，
-# 与 report/tpl_cjournal.tex 里 \setCJKmainfont 指定的是同一套。
+# 与 report/基于尺度自标定与形状先验校正的粘连米粒计数方法.tex 里 \setCJKmainfont 指定的是同一套。
 # 找不到时按候选顺序回退，也可用环境变量 RICE_LATIN_FONT / RICE_CJK_FONT 指定文件。
 _LATIN_FAMILIES = ("Latin Modern Roman", "CMU Serif", "TeX Gyre Termes", "DejaVu Serif")
 _CJK_FAMILIES = ("FZShuSong-Z01", "Source Han Serif SC", "Noto Serif CJK SC",

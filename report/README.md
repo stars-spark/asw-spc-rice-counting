@@ -1,12 +1,12 @@
 # 报告编译说明
 
-主文件：`tpl_cjournal.tex`（中文期刊双栏版式）
+主文件：`基于尺度自标定与形状先验校正的粘连米粒计数方法.tex`，编译出的 PDF 与它同名
 
 ## 文件分工
 
 | 文件 | 内容 |
 |---|---|
-| `tpl_cjournal.tex` | 版式：字号、页眉页脚、浮动体参数、标题层次 |
+| `基于尺度自标定与形状先验校正的粘连米粒计数方法.tex` | 版式：字号、页眉页脚、浮动体参数、标题层次 |
 | `body.tex` | 正文（引言到结论） |
 | `appendix.tex` | 附录 A：更多计数结果图 |
 | `abstract.tex` / `keywords.tex` | 摘要 / 关键词 |
@@ -23,7 +23,7 @@ VSCode 装 LaTeX Workshop 后直接按 `Ctrl+Alt+B`，
 
 命令行：
 
-    xelatex tpl_cjournal && bibtex tpl_cjournal && xelatex tpl_cjournal && xelatex tpl_cjournal
+    xelatex 基于尺度自标定与形状先验校正的粘连米粒计数方法 && bibtex 基于尺度自标定与形状先验校正的粘连米粒计数方法 && xelatex 基于尺度自标定与形状先验校正的粘连米粒计数方法 && xelatex 基于尺度自标定与形状先验校正的粘连米粒计数方法
 
 ## 改动提示
 
