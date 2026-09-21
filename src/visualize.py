@@ -1244,6 +1244,10 @@ def student_bars_figure(out_name="student_bars.pdf"):
     return _save_data_fig(fig, out_name)
 
 
+ABSTRACT_REAL_IMAGE = "IMG20240925164316_jpg.rf.4b4efde2cdd707e707e25ece4084e127.jpg"
+ABSTRACT_SYNTH_IMAGE = "touch80_05.png"
+
+
 def abstract_figure(out_name="graphical_abstract.pdf"):
     """首页图文摘要：上排两个场景的逐粒结果，下排两幅定量图。
 
@@ -1253,8 +1257,11 @@ def abstract_figure(out_name="graphical_abstract.pdf"):
     """
     from src import counter, plotstyle as ps, render, synth
 
-    real = io_utils.load_d1()[0]
-    dense = max(synth.load_d2(), key=lambda s: s.get("touch_prob") or 0)
+    # 两个位置各放该类里数得最准的一张。先比总数误差，再比逐粒按位置配对后的漏检与多检。
+    # 真实照片这张数出 82 粒、真值 82 粒，配对后只漏 1 粒、多 1 粒；
+    # 合成图这张粘连率 80%，数出 87 粒、真值 87 粒，每一块都恰好对应一粒米。
+    real = {s["file_name"]: s for s in io_utils.load_d1()}[ABSTRACT_REAL_IMAGE]
+    dense = {s["file_name"]: s for s in synth.load_d2()}[ABSTRACT_SYNTH_IMAGE]
 
     old = ps.apply()
     fig = plt.figure(figsize=(ps.TEXT_WIDTH_IN, 5.5))

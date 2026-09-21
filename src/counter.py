@@ -3,6 +3,7 @@ import numpy as np
 from src import correct, preprocess, segment
 
 SPECK_RATIO = 0.3
+RESPLIT = True
 
 
 def count_rice(img_bgr, beta=None, residual_ratio=correct.RESIDUAL_RATIO,
@@ -45,6 +46,11 @@ def count_rice(img_bgr, beta=None, residual_ratio=correct.RESIDUAL_RATIO,
             ws, a0, solidity0=calib["solidity0"],
             residual_ratio=residual_ratio, fragment_ratio=fragment_ratio
         )
+        if RESPLIT:
+            count, merged, details = correct.resplit_residuals(
+                merged, details, a0, calib["minor0"], solidity0=calib["solidity0"],
+                residual_ratio=residual_ratio, fragment_ratio=fragment_ratio
+            )
         total += count
         debug["n_clusters"] += 1
         if return_debug:

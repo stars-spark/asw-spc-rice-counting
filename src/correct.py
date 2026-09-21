@@ -70,3 +70,35 @@ def correct_cluster(labels, a0, solidity0=None, residual_ratio=RESIDUAL_RATIO,
         fragment_ratio=fragment_ratio
     )
     return count, merged, details
+
+
+def resplit_residuals(merged, details, a0, minor0, solidity0=None,
+                      residual_ratio=RESIDUAL_RATIO, fragment_ratio=FRAGMENT_RATIO):
+    """Turn "counted by area" into an actual cut wherever the cut looks like grains.
+
+    A region the watershed left whole is counted as round(area / A0) grains. That count is
+    usually right, but the drawing then shows several grains as one. Here each such region is
+    cut into that many pieces; the cut is kept only if every piece is at least a fragment's
+    size and none is itself still an oversized concave region, otherwise the area count stands.
+    """
+    from src import segment
+
+    out = merged.copy()
+    next_label = int(out.max()) + 1
+    for detail in details:
+        if detail["verdict"] != "residual":
+            continue
+        region = out == detail["label"]
+        pieces = segment.split_by_count(region.astype(np.uint8), detail["n"], minor0)
+        # 一块区域可能由不相连的几片组成，注水够不着的那片会留成 0，这时不强行切
+        if pieces is None or (region & (pieces == 0)).any():
+            continue
+        areas = [int((pieces == i).sum()) for i in range(1, detail["n"] + 1)]
+        if min(areas) < fragment_ratio * a0 or max(areas) > residual_ratio * a0:
+            continue
+        for i in range(1, detail["n"] + 1):
+            out[pieces == i] = next_label
+            next_label += 1
+    count, details = count_regions(out, a0, solidity0=solidity0,
+                                   residual_ratio=residual_ratio, fragment_ratio=fragment_ratio)
+    return count, out, details

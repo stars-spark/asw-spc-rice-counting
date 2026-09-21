@@ -130,3 +130,36 @@ def split_component(mask, calib, beta=None):
     if markers.max() <= 1:
         return (mask > 0).astype(np.int32), dist, markers
     return watershed(-dist, markers, mask=mask > 0), dist, markers
+
+
+def split_by_count(mask, k, minor0):
+    """Cut a region known, from its area, to hold k grains into k pieces.
+
+    Used on the regions the depth test left whole, where the neck between two plump grains
+    is too shallow for h-maxima to see. The k highest points of the distance map become the
+    seeds, taken greedily and never closer than SEED_MERGE_RATIO grain widths - the spacing
+    measured to separate seeds of different grains from pieces of one peak. Returns None when
+    the region cannot hold k such seeds, so the caller keeps counting it by area instead.
+    """
+    from scipy import ndimage
+
+    if k < 2:
+        return None
+    dist = distance_transform(mask)
+    peaks = (dist == ndimage.maximum_filter(dist, size=3)) & (mask > 0)
+    rows, cols = np.nonzero(peaks)
+    order = np.argsort(-dist[rows, cols])
+    spacing = SEED_MERGE_RATIO * minor0
+    chosen = []
+    for i in order:
+        point = np.array([rows[i], cols[i]], dtype=np.float32)
+        if all(np.linalg.norm(point - q) >= spacing for q in chosen):
+            chosen.append(point)
+            if len(chosen) == k:
+                break
+    if len(chosen) < k:
+        return None
+    markers = np.zeros(mask.shape, dtype=np.int32)
+    for index, (r, c) in enumerate(chosen, start=1):
+        markers[int(r), int(c)] = index
+    return watershed(-dist, markers, mask=mask > 0)
