@@ -3,22 +3,37 @@
     {
       "name": "xelatex",
       "command": "xelatex",
-      "args": ["-synctex=1", "-interaction=nonstopmode", "-file-line-error", "%DOC%"]
+      "args": [
+        "-synctex=1",
+        "-interaction=nonstopmode",
+        "-file-line-error",
+        "%DOC%"
+      ]
     },
     {
       "name": "bibtex",
       "command": "bibtex",
-      "args": ["%DOCFILE%"]
+      "args": [
+        "%DOCFILE%"
+      ]
     }
   ],
   "latex-workshop.latex.recipes": [
     {
       "name": "xelatex x2",
-      "tools": ["xelatex", "xelatex"]
+      "tools": [
+        "xelatex",
+        "xelatex"
+      ]
     },
     {
       "name": "xelatex -> bibtex -> xelatex x2",
-      "tools": ["xelatex", "bibtex", "xelatex", "xelatex"]
+      "tools": [
+        "xelatex",
+        "bibtex",
+        "xelatex",
+        "xelatex"
+      ]
     }
   ],
   "latex-workshop.latex.recipe.default": "lastUsed",
@@ -26,7 +41,20 @@
   "latex-workshop.latex.outDir": "%DIR%",
   "latex-workshop.view.pdf.viewer": "tab",
   "latex-workshop.latex.clean.fileTypes": [
-    "*.aux", "*.bbl", "*.blg", "*.out", "*.toc", "*.synctex.gz", "*.fls", "*.fdb_latexmk"
+    "*.aux",
+    "*.bbl",
+    "*.blg",
+    "*.out",
+    "*.toc",
+    "*.synctex.gz",
+    "*.fls",
+    "*.fdb_latexmk"
   ],
-  "files.associations": { "*.tex": "latex" }
+  "files.associations": {
+    "*.tex": "latex"
+  },
+  "latex-workshop.latex.search.rootFiles.exclude": [
+    "**/main_formal_backup.tex"
+  ],
+  "latex-workshop.latex.rootFile.useSubFile": false
 }
