@@ -112,18 +112,22 @@
 \end{center}
 \vspace{1.5ex}
 
-% 摘要与关键词按学位论文与期刊的通行排法：上下各一条细线把它与正文隔开，
-% 「摘要」二字居中作小标题，正文小五号、每段首行缩进两字，关键词另起一行。
-% 左右各收进 2 个字，版心宽度变窄，读起来与正文有所区别。
+% 摘要、关键词与图文摘要排成一个整体，上下各一条细线与正文隔开。
+% 「摘要」「图文摘要」都居中作小标题；正文小五号，左右各收进两个字，每段首行缩进两字。
+% 分段完全按 abstract.tex 来：空一行就是新的一段，空几行效果相同，段内换行不影响排版。
+% 图文摘要与摘要正文同宽、左右对齐；它不属于正文插图，图注不编号，正文图号仍从 1 开始。
 \newlength{\absindent}
 \begingroup
 \zihao{-5}
 % 收进量取整数个小五号字宽，行宽恰为整数个汉字，行末不易留下零星一两个字
 \setlength{\absindent}{2\ccwd}
 \setlength{\parskip}{0pt}
-\noindent\hspace*{\absindent}\rule{\dimexpr\linewidth-2\absindent\relax}{0.6pt}\par
+\newcommand{\absrule}[1]{\noindent\hspace*{\absindent}%
+  \rule{\dimexpr\linewidth-2\absindent\relax}{#1}\par}
+\newcommand{\abshead}[1]{{\centering\sffamily\zihao{5}#1\par}}
+\absrule{0.6pt}
 \vspace{0.8ex}
-{\centering\sffamily\zihao{5}摘\quad 要\par}
+\abshead{摘\quad 要}
 \vspace{0.6ex}
 \leftskip=\absindent \rightskip=\absindent
 \parindent=2\ccwd
@@ -133,22 +137,20 @@
 \setbox0=\hbox{\sffamily 关键词：}%
 \hangindent=\wd0 \hangafter=1
 \noindent{\sffamily 关键词：}\input{keywords.tex}\par
-\vspace{0.8ex}
 \leftskip=0pt \rightskip=0pt
-\noindent\hspace*{\absindent}\rule{\dimexpr\linewidth-2\absindent\relax}{0.4pt}\par
-\endgroup
 \vspace{2ex}
-
-% 首页图文摘要：题目问"数出多少粒"与"解决连体计数不准"，这两幅各答一问。
-\begin{figure}[H]
-  \centering
-  \includegraphics[width=\textwidth]{graphical_abstract.pdf}
-  \caption{上排为方法一在真实照片与重度粘连合成图上的逐粒计数结果，各取该类中数得最准的一张；
-  下排左为计数误差随粘连率的变化，右为四种做法在同一批测试图上的平均绝对误差。}
-  \label{fig:abstract}
-\end{figure}
-
-\vspace{1ex}
+\abshead{图文摘要}
+\vspace{0.8ex}
+% 题目问"数出多少粒"与"解决连体计数不准"，图里的几幅各答一问
+{\centering
+ \includegraphics[width=\dimexpr\linewidth-2\absindent\relax]{graphical_abstract.pdf}\par}
+\vspace{0.6ex}
+{\leftskip=\absindent \rightskip=\absindent \parindent=0pt
+ 上排为方法一在真实照片与重度粘连合成图上的逐粒计数结果，各取该类中数得最准的一张；
+ 下排左为计数误差随粘连率的变化，右为四种做法在同一批测试图上的平均绝对误差。\par}
+\vspace{0.8ex}
+\absrule{0.4pt}
+\endgroup
 
 % 目录单独占一页：标题与摘要在前一页结束，正文从目录之后另起一页
 \setcounter{tocdepth}{2}
