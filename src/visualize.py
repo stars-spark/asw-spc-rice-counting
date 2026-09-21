@@ -1081,6 +1081,10 @@ def _touching_table():
     return d2.groupby(["touch_prob", "method"])["abs_err"].mean().unstack()
 
 
+# 误差曲线与散点图里本文方法用深蓝。B1 原本占着深蓝，在这两张图里改用绿色
+CURVE_COLOURS = {"Ours_ASW_SPC": "#0072B2", "B1_components": "#009E73"}
+
+
 def error_curve_figure(out_name="error_vs_touching.pdf"):
     """各方法的误差随粘连率的变化。只给本文方法标数值，六条线全标会挤成一团。"""
     from src import plotstyle as ps
@@ -1096,10 +1100,12 @@ def error_curve_figure(out_name="error_vs_touching.pdf"):
         if method == "B4_erosion_watershed":
             # B4 在这组数据上与 B1 逐档相同，换细线与实心标记，两条线叠着也都看得见
             extra = dict(lw=1.0, markerfacecolor=ps.SERIES[method]["color"], markersize=3.5)
+        if method in CURVE_COLOURS:
+            extra["color"] = CURVE_COLOURS[method]
         ax.plot(x, table[method], **ps.line_style(method, **extra))
     ours = table["Ours_ASW_SPC"]
     ps.label_points(ax, x, ours, fmt="{:.2f}", dy=-5, fontsize=7,
-                    color=ps.SERIES["ours"]["color"])
+                    color=CURVE_COLOURS["Ours_ASW_SPC"])
     ax.set_ylim(-4.5, None)
     ps.headroom(ax, 0.04)
     ax.set_xticks(x)
@@ -1130,7 +1136,7 @@ def scatter_figure(out_name="pred_vs_true.pdf", datasets=("d1", "d2", "d3")):
         hi = max(truth.max(), pred.max()) * 1.08
         ax.plot([lo, hi], [lo, hi], color="#7F7F7F", ls="--", lw=0.8, label="_y=x")
         ax.scatter(truth, pred, s=11, marker=style["marker"], facecolors="none",
-                   edgecolors=style["color"], linewidths=0.8)
+                   edgecolors=CURVE_COLOURS["Ours_ASW_SPC"], linewidths=0.8)
         ax.set_xlim(lo, hi)
         ax.set_ylim(lo, hi)
         ax.set_aspect("equal")
