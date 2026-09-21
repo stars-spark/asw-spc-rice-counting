@@ -103,6 +103,8 @@ def touching_table():
              "Ours_ASW_SPC": r"\textbf{本文}"}
     methods = [m for m in METHOD_ORDER if m in pivot.columns]
     lines = [
+        # 七列数字挤在一起不好读，列距放宽到默认的两倍
+        r"\setlength{\tabcolsep}{12pt}",
         r"\begin{tabular}{l" + "r" * len(methods) + "}",
         r"\toprule",
         "粘连率 & " + " & ".join(short.get(m, m) for m in methods) + r" \\",

@@ -524,7 +524,7 @@ def touching_problem_figure(out_name="problem_zoom.png"):
 def binarisation_failure_figure(out_name="binarisation_failure.png"):
     """3.2 用图：前景取亮还是取暗，都会多出一块巨大的伪前景。
 
-    两种极性各画一张，并把最大连通域涂成橙色，读者一眼能看出多出来的是什么。
+    两种极性各画一张，并把最大连通域涂成蓝色，读者一眼能看出多出来的是什么。
     """
     sample = io_utils.load_d1()[0]
     image = io_utils.imread(sample["path"])
@@ -540,7 +540,7 @@ def binarisation_failure_figure(out_name="binarisation_failure.png"):
 
         view = np.dstack([binary * 255] * 3)
         if biggest:
-            view[labels == biggest] = (255, 140, 60)
+            view[labels == biggest] = (0, 114, 178)
         name = "取亮的一类作前景" if polarity == "bright" else "取暗的一类作前景"
         panels.append((view, f"{name}\n{count - 1} 个连通域，最大块占 {share * 100:.0f}%"))
 
