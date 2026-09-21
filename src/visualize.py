@@ -1122,29 +1122,53 @@ def error_curve_figure(out_name="error_vs_touching.pdf"):
 
 
 def scatter_figure(out_name="pred_vs_true.pdf", datasets=("d1", "d2", "d3")):
-    """本文方法逐张的预测值与真值，虚线为两者相等。"""
+    """本文方法逐张的预测值与真值，画成热力图。格子颜色是落在该格的图片张数，虚线为两者相等。
+
+    D3 有 719 张图，计数都是小整数，散点会大片重合，看不出哪里密；热力图把张数显出来。
+    三幅子图共用一条对数色标，D1、D2 张数少，格子多为 1 到 3 张，仍能与 D3 放在一起比。
+    """
     from src import plotstyle as ps
     per_image = pd.read_csv(METRICS_ROOT / "per_image.csv")
     ours = per_image[per_image.method == "Ours_ASW_SPC"]
-    style = ps.SERIES["ours"]
+    # 每个数据集的格宽。D3 计数是小整数，一格一粒；D1、D2 量程大，几粒并一格
+    bin_width = {"d1": 5, "d2": 4, "d3": 1}
+    cmap = matplotlib.colors.LinearSegmentedColormap.from_list(
+        "blues", plt.get_cmap("Blues")(np.linspace(0.22, 1.0, 256)))
+    cmap.set_bad("white")
 
-    fig, axes = _data_fig(2.25, ncols=len(datasets))
+    fig, axes = _data_fig(2.5, ncols=len(datasets))
+    grids = []
     for ax, name in zip(np.atleast_1d(axes), datasets):
         block = ours[ours.dataset == name]
-        truth, pred = block["gt"], block["pred"]
-        lo = min(truth.min(), pred.min()) * 0.9
-        hi = max(truth.max(), pred.max()) * 1.08
-        ax.plot([lo, hi], [lo, hi], color="#7F7F7F", ls="--", lw=0.8, label="_y=x")
-        ax.scatter(truth, pred, s=11, marker=style["marker"], facecolors="none",
-                   edgecolors=CURVE_COLOURS["Ours_ASW_SPC"], linewidths=0.8)
-        ax.set_xlim(lo, hi)
-        ax.set_ylim(lo, hi)
+        truth, pred = block["gt"].to_numpy(), block["pred"].to_numpy()
+        w = bin_width.get(name, 1)
+        lo = np.floor(min(truth.min(), pred.min()) / w) * w - w / 2
+        hi = np.ceil(max(truth.max(), pred.max()) / w) * w + w / 2
+        edges = np.arange(lo, hi + w, w)
+        counts, _, _ = np.histogram2d(truth, pred, bins=[edges, edges])
+        grids.append((ax, edges, np.ma.masked_equal(counts.T, 0)))
+        ax.set_title(f"{dataset_label(name)}\nMAE {block['error'].abs().mean():.2f}",
+                     linespacing=1.3)
+    top = max(g.max() for _, _, g in grids)
+    norm = matplotlib.colors.LogNorm(vmin=1, vmax=top)
+    for ax, edges, grid in grids:
+        mesh = ax.pcolormesh(edges, edges, grid, cmap=cmap, norm=norm,
+                             edgecolors="white", linewidth=0.3)
+        ax.plot(edges[[0, -1]], edges[[0, -1]], color="#555555", ls="--", lw=0.8,
+                label="_y=x")
+        ax.set_xlim(edges[0], edges[-1])
+        ax.set_ylim(edges[0], edges[-1])
         ax.set_aspect("equal")
+        ax.grid(False)
         ax.xaxis.set_major_locator(matplotlib.ticker.MaxNLocator(4))
         ax.yaxis.set_major_locator(matplotlib.ticker.MaxNLocator(4, prune="lower"))
         ax.set_xlabel("真值／粒")
-        ax.set_title(f"{dataset_label(name)}  MAE {block['error'].abs().mean():.2f}")
     np.atleast_1d(axes)[0].set_ylabel("预测值／粒")
+    bar = fig.colorbar(mesh, ax=list(np.atleast_1d(axes)), shrink=0.62, aspect=16, pad=0.02)
+    bar.set_label("图片张数")
+    ticks = [t for t in (1, 2, 5, 10, 20, 50, 100, 200) if t <= top]
+    bar.set_ticks(ticks, labels=[str(t) for t in ticks])
+    bar.minorticks_off()
     fig.get_layout_engine().set(wspace=0.06)
     return _save_data_fig(fig, out_name)
 
