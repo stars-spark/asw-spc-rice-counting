@@ -915,6 +915,104 @@ def b3_seed_figure(out_name="b3_seeds.png"):
     return FIG_ROOT / out_name
 
 
+def terrain_figure(out_name="terrain_3d.png", elev=38, azim=-58, z_exaggeration=1.25):
+    """把距离变换当成地形来看。
+
+    注水分割真正淹没的曲面是距离变换的负值。米粒内部离背景远，取负之后陷成一个盆地；
+    两粒贴合处离背景近，取负之后隆成一道埂。一粒米一个盆地，水自盆底的种子漫上来，
+    在埂上相遇，相遇的地方就是切分线。3.1 节用文字描述的这件事，这张图直接画了出来。
+
+    选的是一个真被切开的两粒粘连块，而不是按面积补数的那种：只有前者的地形上
+    才既有两个盆地、又有一条切分线。
+    """
+    from src import synth
+
+    scene = max(synth.load_d2(), key=lambda s: s["touch_prob"])
+    image = io_utils.imread(scene["path"])
+    pre = preprocess.preprocess(image)
+    _, _, debug = counter.count_rice(image, pre=pre, return_debug=True)
+
+    def parts_of(cluster):
+        return len(np.unique(np.asarray(cluster["merged"]))) - 1
+
+    cut = [c for c in debug["clusters"]
+           if parts_of(c) == c["count"] == int(np.asarray(c["markers"]).max()) >= 2]
+    cluster = max(cut or debug["clusters"], key=lambda c: c["component"]["area"])
+
+    pad = 8
+    dist = np.pad(np.asarray(cluster["dist"], dtype=np.float32), pad)
+    mask = np.pad(np.asarray(cluster["mask"]) > 0, pad)
+    merged = np.pad(np.asarray(cluster["merged"]), pad)
+    rows, cols = np.mgrid[0:dist.shape[0], 0:dist.shape[1]]
+    depth = dist.max()
+
+    fig = plt.figure(figsize=(9, 3.9))
+    grid = fig.add_gridspec(1, 3, width_ratios=[0.85, 2.7, 0.85], wspace=0.02)
+
+    _show(fig.add_subplot(grid[0]), mask, "(a) 粘连块的二值图", "gray")
+
+    ax = fig.add_subplot(grid[1], projection="3d")
+    # 关掉自动深度排序，否则插在盆底的种子杆会被曲面整片挡住
+    ax.computed_zorder = False
+    ax.plot_surface(cols, rows, -dist, rstride=1, cstride=1, linewidth=0, antialiased=True,
+                    facecolors=plt.cm.magma(dist / max(depth, 1e-6)), shade=False, zorder=1)
+
+    # 种子画成从盆底竖到地面的一根杆，否则俯视时会被盆壁挡住
+    seeds = np.argwhere(np.asarray(cluster["markers"]) > 0) + pad
+    for row, col in seeds:
+        floor = -dist[row, col]
+        ax.plot([col, col], [row, row], [floor, 0.6], color=SERIES_COLORS["sam3"],
+                lw=1.0, zorder=4)
+    ax.scatter(seeds[:, 1], seeds[:, 0], np.full(len(seeds), 0.6),
+               color=SERIES_COLORS["sam3"], s=26, depthshade=False, zorder=5)
+    # 只要两块之间的那道分界，不要粘连块自身的外轮廓
+    inner = find_boundaries(merged, mode="thick") & mask
+    inner &= ~find_boundaries(mask.astype(np.int32), mode="thick")
+    line = np.argwhere(inner)
+    if len(line):
+        ax.scatter(line[:, 1], line[:, 0], -dist[line[:, 0], line[:, 1]] + 0.6,
+                   color=SERIES_COLORS["baseline"], s=5, depthshade=False, zorder=3)
+
+    ax.view_init(elev=elev, azim=azim)
+    ax.set_box_aspect((dist.shape[1], dist.shape[0], z_exaggeration * max(dist.shape)))
+    ax.set_zlim(-depth * 1.12, depth * 0.10)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_zticks([0, -round(depth / 2), -round(depth)])
+    ax.tick_params(axis="z", pad=-1, labelsize=7.5 * FONT_SCALE, colors=INK)
+    ax.set_zlabel("深度 / 像素", labelpad=4, fontsize=8 * FONT_SCALE)
+    # 只留一条深度刻度，三维坐标框的其余线条对这张图没有用处
+    for axis in (ax.xaxis, ax.yaxis, ax.zaxis):
+        axis.pane.set_visible(False)
+        axis.line.set_color((1, 1, 1, 0))
+    ax.grid(False)
+    ax.set_title("(b) 把距离变换取负当作地形，米粒处凹成盆地\n"
+                 "橙点为种子，蓝线为两个盆地相遇之处",
+                 fontsize=9 * FONT_SCALE, y=0.97)
+
+    _show(fig.add_subplot(grid[2]), label2rgb(merged, bg_label=0),
+          f"(c) 切开后为 {cluster['count']} 粒")
+
+    ensure_dir(FIG_ROOT)
+    fig.savefig(FIG_ROOT / out_name, dpi=DPI, bbox_inches="tight")
+    plt.close(fig)
+    _trim_white(FIG_ROOT / out_name)
+    return FIG_ROOT / out_name
+
+
+def _trim_white(path, margin=8):
+    """三维坐标框即使隐藏也会占位，存图后把四周多余的白边裁掉。"""
+    from PIL import Image
+    image = Image.open(path).convert("RGB")
+    pixels = np.asarray(image)
+    ink = np.argwhere((pixels < 245).any(axis=2))
+    if len(ink):
+        (top, left), (bottom, right) = ink.min(axis=0), ink.max(axis=0)
+        image.crop((max(left - margin, 0), max(top - margin, 0),
+                    min(right + margin, image.width), min(bottom + margin, image.height))
+                   ).save(path)
+
+
 # ------------------------------------------------------------------ 方法二用图
 # 这三张图与前面的插图共用 _show、_crop_around 与同一套配色，
 # 密度图一律用 viridis，点标注一律用下面这三种颜色，读者在三张图之间不必重新适应。
@@ -1161,6 +1259,7 @@ def main():
         teacher_labels_figure(),
         student_pipeline_figure(),
         student_vs_geometric_figure(),
+        terrain_figure(),
     ]
     for path in outputs:
         if path:
