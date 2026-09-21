@@ -1082,7 +1082,10 @@ def _touching_table():
 
 
 # 误差曲线与散点图里本文方法用深蓝。B1 原本占着深蓝，在这两张图里改用绿色
-CURVE_COLOURS = {"Ours_ASW_SPC": "#0072B2", "B1_components": "#009E73"}
+CURVE_COLOURS = {"Ours_ASW_SPC": "#0072B2", "B1_components": "#009E73",
+                 "ours": "#0072B2", "b1": "#009E73",
+                 # 首页柱状图里 B1 用了绿色，学生模型改用紫红，免得两种柱子同色
+                 "student": "#CC79A7"}
 
 
 def error_curve_figure(out_name="error_vs_touching.pdf"):
@@ -1178,27 +1181,31 @@ def _abstract_curve(ax):
     from src import plotstyle as ps
     curve = _touching_table()
     x = curve.index * 100
+    # 配色、线宽与图 12 一致：本文方法深蓝粗线，直接数连通域绿色
     for method, key in (("B1_components", "b1"), ("Ours_ASW_SPC", "ours")):
         if method in curve:
-            extra = dict(lw=1.8, markersize=5) if key == "ours" else {}
-            ax.plot(x, curve[method], **ps.line_style(key, **extra))
+            colour = CURVE_COLOURS[key]
+            extra = (dict(lw=2.0, zorder=5, markersize=5.5) if key == "ours"
+                     else dict(lw=1.2, markersize=4.5))
+            ax.plot(x, curve[method], **ps.line_style(key, color=colour, **extra))
             if key == "b1":
                 # 粘连率为 0 时两种做法数值相同，只在方法一那条线上标一次
                 for xi, yi in list(zip(x, curve[method]))[1:]:
                     ax.annotate(f"{yi:.1f}", (xi, yi), xytext=(-4, 3),
                                 textcoords="offset points", ha="right", va="bottom",
-                                fontsize=6.5, color=ps.SERIES[key]["color"])
+                                fontsize=6.5, color=colour)
             else:
                 ps.label_points(ax, x, curve[method], fmt="{:.1f}", dy=-5, fontsize=6.5,
-                                color=ps.SERIES[key]["color"])
+                                color=colour)
     ax.set_ylim(-6, None)
     ps.headroom(ax, 0.12)
     ax.set_xticks(x)
     ax.set_xlabel("粘连率／%")
     ax.set_ylabel("平均绝对误差／粒 ↓")
-    ax.set_title("误差随粘连程度的变化")
-    ax.legend(loc="upper left", frameon=True, facecolor="white", edgecolor=GRID,
-              framealpha=1)
+    ax.set_title("误差随粘连程度的变化", pad=19)
+    # 图例横排在图框上方、不带边框，与图 12 相同
+    ax.legend(loc="lower center", bbox_to_anchor=(0.5, 1.0), ncol=2, frameon=False,
+              borderaxespad=0.2)
 
 
 def _abstract_bars(ax):
@@ -1216,13 +1223,15 @@ def _abstract_bars(ax):
         values = [float((table[table.dataset == d][key]
                          - table[table.dataset == d].truth).abs().mean()) for d in datasets]
         xs = [i - 0.4 + width * (index + 0.5) for i in range(len(datasets))]
-        ax.bar(xs, values, width * 0.9, **ps.bar_style(key))
+        colour = CURVE_COLOURS.get(key, ps.SERIES[key]["color"])
+        ax.bar(xs, values, width * 0.9,
+               **ps.bar_style(key, facecolor=ps.light(colour), edgecolor=colour))
         ps.label_points(ax, xs, values, fmt="{:.1f}", bold=True, fontsize=6)
     ps.headroom(ax, 0.10)
     ax.set_xticks(range(len(datasets)))
     ax.set_xticklabels([DATASET_CN[d] for d in datasets])
     ax.set_ylabel("平均绝对误差／粒 ↓")
-    ax.set_title("四种做法在同一批测试图上的误差")
+    ax.set_title("四种做法在同一批测试图上的误差", pad=19)
     ax.grid(axis="x", visible=False)
     ax.legend(loc="upper right", ncol=1, frameon=True, facecolor="white",
               edgecolor=GRID, framealpha=1, fontsize=7, handlelength=1.6)
