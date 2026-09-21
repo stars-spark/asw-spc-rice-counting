@@ -1267,69 +1267,95 @@ def abstract_figure(out_name="graphical_abstract.pdf"):
 
 
 def seed_depth_figure(out_name="seed_depth.pdf"):
-    """3.5 用图：一粒内部是浅坑、两粒之间是深谷，所以该看深度而不是距离。"""
+    """3.5 用图：两粒之间的谷比低峰矮出 h 以上，所以切开；看的是相对深度，不是绝对距离。
+
+    剖面沿块内的山脊走，而不是两种子间的直线。直线会穿出块外，剖面在背景上掉到 0，
+    那是块的轮廓，不是注水时水面真正要漫过的鞍点。
+    """
+    from skimage.graph import route_through_array
     from src import plotstyle as ps, synth
     sample = max(synth.load_d2(), key=lambda s: s.get("touch_prob") or 0)
     image = io_utils.imread(sample["path"])
     pre = preprocess.preprocess(image)
     calib = pre["calib"]
 
-    # 挑一个确实被切成两半的粘连块，只出一个种子的块说明不了"深谷"这件事
+    # 挑一个恰好出两个种子的两粒块，取谷最深的那个，差别最直观
     h = segment.BETA * calib["minor0"] / 2.0
-    chosen = None
-    for component in sorted((c for c in calib["components"]
-                             if 1.6 * calib["a0"] <= c["area"] <= 3.2 * calib["a0"]),
-                            key=lambda c: c["solidity"]):
+    best = None
+    for component in calib["components"]:
+        if not 1.6 * calib["a0"] <= component["area"] <= 2.4 * calib["a0"]:
+            continue
         piece = (calib["labels"] == component["label"]).astype(np.uint8)
         sub, _ = _crop_around(piece, component["bbox"], pad_ratio=0.25)
-        dist = cv2.distanceTransform(sub, cv2.DIST_L2, 5)
+        dist = cv2.distanceTransform(sub, cv2.DIST_L2, cv2.DIST_MASK_PRECISE)
         markers = segment.adaptive_markers(dist, calib["minor0"])
-        if int(markers.max()) >= 2:
-            chosen = (sub, dist, markers)
-            break
-    if chosen is None:
+        if int(markers.max()) != 2:
+            continue
+        seeds = []
+        for i in (1, 2):
+            rr, cc = np.nonzero(markers == i)
+            k = int(np.argmax(dist[rr, cc]))
+            seeds.append((int(rr[k]), int(cc[k])))
+        # 代价随距离指数下降，最短路就贴着山脊走，路上的最低点即鞍点
+        cost = np.where(sub > 0, np.exp(-dist), 1e6)
+        path, _ = route_through_array(cost, seeds[0], seeds[1], fully_connected=True,
+                                      geometric=True)
+        path = np.array(path)
+        profile = dist[path[:, 0], path[:, 1]]
+        depth = min(profile[0], profile[-1]) - profile.min()
+        if best is None or depth > best[0]:
+            best = (depth, dist, path, profile)
+    if best is None:
         return None
-    sub, dist, markers = chosen
+    depth, dist, path, profile = best
 
-    centres = [tuple(np.mean(np.nonzero(markers == i), axis=1))
-               for i in range(1, int(markers.max()) + 1)]
-    peaks = sorted(centres, key=lambda rc: -dist[int(rc[0]), int(rc[1])])[:2]
-    (r0, c0), (r1, c1) = peaks
-    steps = int(max(abs(r1 - r0), abs(c1 - c0))) + 1
-    rows = np.linspace(r0, r1, steps).astype(int)
-    cols = np.linspace(c0, c1, steps).astype(int)
-    profile = dist[rows, cols]
+    blue, red, grey = "#0072B2", "#D55E00", "#7F7F7F"
+    steps = np.hypot(*np.diff(path, axis=0).T)
+    xs = np.concatenate([[0.0], np.cumsum(steps)])
+    low_peak = min(profile[0], profile[-1])
+    saddle = int(np.argmin(profile))
 
     fig, axes = _data_fig(2.45, ncols=2, gridspec_kw={"width_ratios": [1, 1.7]})
-    seed_colour = ps.SERIES["B1_components"]["color"]
     axes[0].imshow(dist, cmap="magma")
-    axes[0].plot([c0, c1], [r0, r1], color="#56B4E9", lw=1.2, ls="--", label="_cut")
-    axes[0].scatter([c0, c1], [r0, r1], s=16, color="#56B4E9")
-    axes[0].set_title("粘连块的距离变换，虚线为剖面位置")
+    axes[0].plot(path[:, 1], path[:, 0], color="#56B4E9", lw=1.4, label="_ridge")
+    axes[0].scatter(path[[0, -1], 1], path[[0, -1], 0], s=22, color="white",
+                    edgecolors=blue, linewidths=1.0, zorder=3)
+    axes[0].scatter([path[saddle, 1]], [path[saddle, 0]], s=18, marker="v", color=red,
+                    zorder=3)
+    axes[0].set_title("距离变换，蓝线为沿山脊的剖面")
     axes[0].axis("off")
 
     ax = axes[1]
-    xs = np.arange(len(profile))
-    ax.plot(xs, profile, **ps.line_style("ours", marker=None, label="沿虚线的剖面"))
-    ax.hlines(h, xs[0], xs[-1], colors=seed_colour, linestyles="--", lw=1.1,
-              label=f"深度门限 h = {h:.1f}")
-    valley = int(np.argmin(profile[len(profile) // 5: -len(profile) // 5]) + len(profile) // 5)
-    left, right = int(np.argmax(profile[:valley])), valley + int(np.argmax(profile[valley:]))
-    # 谷底的数值标在点下方，标在上方会落进 V 形谷的两壁之间
-    for index, dy, va in ((left, 4, "bottom"), (right, 4, "bottom"), (valley, -4, "top")):
-        ax.annotate(f"{profile[index]:.1f}", (xs[index], profile[index]), xytext=(0, dy),
-                    textcoords="offset points", ha="center", va=va, fontsize=7, color=INK)
-        ax.plot(xs[index], profile[index], marker="o", ms=3.5, color=ps.SERIES["ours"]["color"],
-                label="_pt")
-    ax.set_ylim(-3.5, None)
-    ps.headroom(ax, 0.22)
-    ax.set_xlabel("自一个种子到另一个种子的位置／像素")
+    ax.fill_between(xs, 0, profile, color=blue, alpha=0.12, lw=0)
+    ax.plot(xs, profile, color=blue, lw=1.8, label="沿山脊的剖面")
+    ax.axhline(low_peak, color=grey, ls=":", lw=1.0, label="较低的峰")
+    ax.axhline(low_peak - h, color=red, ls="--", lw=1.1,
+               label=f"较低的峰减 h，h = {h:.1f}")
+    ax.plot(xs[[0, -1]], profile[[0, -1]], ls="none", marker="o", ms=4.5,
+            markerfacecolor="white", markeredgecolor=blue, markeredgewidth=1.2, label="_peaks")
+    ax.plot(xs[saddle], profile[saddle], ls="none", marker="v", ms=5, color=red,
+            label="_saddle")
+    # 双箭头量出谷深，放在鞍点右侧，不压剖面线
+    arrow_x = xs[saddle] + 0.06 * xs[-1]
+    ax.annotate("", (arrow_x, profile[saddle]), (arrow_x, low_peak),
+                arrowprops=dict(arrowstyle="<->", color=INK, lw=0.8, shrinkA=0, shrinkB=0))
+    ax.annotate(f"谷深 {depth:.1f}", (arrow_x, (low_peak + profile[saddle]) / 2),
+                xytext=(4, 0), textcoords="offset points", ha="left", va="center",
+                fontsize=7.5, color=INK)
+    for index in (0, len(profile) - 1):
+        ax.annotate(f"{profile[index]:.1f}", (xs[index], profile[index]), xytext=(0, 5),
+                    textcoords="offset points", ha="center", va="bottom", fontsize=7, color=blue)
+    ax.annotate(f"{profile[saddle]:.1f}", (xs[saddle], profile[saddle]), xytext=(0, -6),
+                textcoords="offset points", ha="center", va="top", fontsize=7, color=red)
+    ax.set_xlim(-0.04 * xs[-1], 1.04 * xs[-1])
+    ax.set_ylim(0, None)
+    ps.headroom(ax, 0.42)
+    ax.set_xlabel("沿剖面自一个种子到另一个种子／像素")
     ax.set_ylabel("到背景的距离／像素")
-    ax.set_title("两粒之间是一道深谷")
-    ax.legend(loc="upper center", ncol=2, frameon=True, facecolor="white", edgecolor=GRID,
-              framealpha=1)
+    ax.set_title("谷比低峰矮出 h 以上，判为两粒")
+    ax.legend(loc="upper center", ncol=3, frameon=True, facecolor="white", edgecolor=GRID,
+              framealpha=1, handlelength=1.8, columnspacing=1.0)
     return _save_data_fig(fig, out_name)
-
 
 def main():
     from src import synth

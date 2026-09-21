@@ -209,15 +209,15 @@ def is_touching(c, cal):
 该看的是深度而非距离。为此对距离变换取 h-maxima，
 把高度不足 $h=\beta b_0/2$ 的小峰抹平，实现见代码 \ref{code:split}。
 此处用短轴 $b_0$，是因为两粒米能靠多近取决于它们的宽度。
-图 \ref{fig:seeddepth} 沿两个种子的连线取了一条剖面，可以看清这里的差别。
-两个峰之间的谷一路降到 0 像素，远低于门限 5.5，因而被判为两粒。
-一粒米内部的起伏则始终在门限之上，不会被切开。
+图 \ref{fig:seeddepth} 沿块内的山脊从一个种子走到另一个种子，取了一条剖面。
+较低的峰高 12.2，谷底 4.2，谷深 8.0，超过 $h=5.5$，因而被判为两粒。
+一粒米内部的起伏不到 $h$，会被抹平，不会被切开。
 
 \begin{cfigure}
   \centering
   \includegraphics[width=\textwidth]{seed_depth.pdf}
-  \caption{为什么看深度而不看距离。左为粘连块的距离变换，右为沿两个种子连线的剖面，
-  虚线是 h-maxima 的深度门限。}
+  \caption{为什么看深度而不看距离。左为粘连块的距离变换，右为沿山脊的剖面。
+  谷底低于红色虚线，即比较低的峰矮出 $h$ 以上，两个峰各留一个种子。}
   \label{fig:seeddepth}
 \end{cfigure}
 
