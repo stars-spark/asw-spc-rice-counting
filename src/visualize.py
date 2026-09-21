@@ -943,26 +943,63 @@ def terrain_figure(out_name="terrain_3d.png", elev=38, azim=-58, z_exaggeration=
     dist = np.pad(np.asarray(cluster["dist"], dtype=np.float32), pad)
     mask = np.pad(np.asarray(cluster["mask"]) > 0, pad)
     merged = np.pad(np.asarray(cluster["merged"]), pad)
+    markers = np.pad(np.asarray(cluster["markers"]), pad)
+    panels = [mask.astype(np.float32), None, label2rgb(merged, bg_label=0)]
+    titles = ["(a) 粘连块的二值图", "(b) 取距离变换的负值当作地形",
+              f"(c) 切开后为 {cluster['count']} 粒"]
+
+    # 三维面板先单独渲染成图片，再与另两格一起按普通图像排版。
+    # 这样三格都是二维坐标轴，高度相同、标题落在同一条线上，
+    # 且三维图里的字按最终显示尺寸渲染，与左右两格的字一样大。
+    side_aspect = mask.shape[1] / mask.shape[0]
+    size = (4.4, 3.0)
+    for _ in range(2):
+        terrain = _render_terrain(dist, mask, merged, markers, elev, azim,
+                                  z_exaggeration, size)
+        mid_aspect = terrain.shape[1] / terrain.shape[0]
+        height = (9 - 0.35) / (2 * side_aspect + mid_aspect)
+        shown = height * mid_aspect                    # 中间一格最终显示的宽度，英寸
+        rendered = terrain.shape[1] / DPI              # 渲染出来的宽度，英寸
+        if abs(shown / rendered - 1) < 0.04:
+            break
+        size = (size[0] * shown / rendered, size[1] * shown / rendered)
+    panels[1] = terrain
+
+    fig = plt.figure(figsize=(9, height + 0.45))
+    grid = fig.add_gridspec(1, 3, width_ratios=[side_aspect, mid_aspect, side_aspect],
+                            wspace=0.04, left=0, right=1, bottom=0,
+                            top=height / (height + 0.45))
+    for index, (image, title) in enumerate(zip(panels, titles)):
+        _show(fig.add_subplot(grid[index]), image, title, "gray" if index == 0 else None)
+
+    ensure_dir(FIG_ROOT)
+    fig.savefig(FIG_ROOT / out_name, dpi=DPI, bbox_inches="tight")
+    plt.close(fig)
+    _trim_white(FIG_ROOT / out_name)
+    return FIG_ROOT / out_name
+
+
+def _render_terrain(dist, mask, merged, markers, elev, azim, z_exaggeration, size):
+    """把 -D 画成三维地形，返回裁掉白边后的 RGB 数组。"""
+    import io
+
+    from matplotlib.lines import Line2D
+    from PIL import Image
+
     rows, cols = np.mgrid[0:dist.shape[0], 0:dist.shape[1]]
     depth = dist.max()
-
-    fig = plt.figure(figsize=(9, 3.9))
-    grid = fig.add_gridspec(1, 3, width_ratios=[0.85, 2.7, 0.85], wspace=0.02)
-
-    _show(fig.add_subplot(grid[0]), mask, "(a) 粘连块的二值图", "gray")
-
-    ax = fig.add_subplot(grid[1], projection="3d")
+    fig = plt.figure(figsize=size)
+    ax = fig.add_axes([0, 0, 1, 1], projection="3d")
     # 关掉自动深度排序，否则插在盆底的种子杆会被曲面整片挡住
     ax.computed_zorder = False
     ax.plot_surface(cols, rows, -dist, rstride=1, cstride=1, linewidth=0, antialiased=True,
                     facecolors=plt.cm.magma(dist / max(depth, 1e-6)), shade=False, zorder=1)
 
     # 种子画成从盆底竖到地面的一根杆，否则俯视时会被盆壁挡住
-    seeds = np.argwhere(np.asarray(cluster["markers"]) > 0) + pad
+    seeds = np.argwhere(markers > 0)
     for row, col in seeds:
-        floor = -dist[row, col]
-        ax.plot([col, col], [row, row], [floor, 0.6], color=SERIES_COLORS["sam3"],
-                lw=1.0, zorder=4)
+        ax.plot([col, col], [row, row], [-dist[row, col], 0.6],
+                color=SERIES_COLORS["sam3"], lw=1.0, zorder=4)
     ax.scatter(seeds[:, 1], seeds[:, 0], np.full(len(seeds), 0.6),
                color=SERIES_COLORS["sam3"], s=26, depthshade=False, zorder=5)
     # 只要两块之间的那道分界，不要粘连块自身的外轮廓
@@ -981,23 +1018,25 @@ def terrain_figure(out_name="terrain_3d.png", elev=38, azim=-58, z_exaggeration=
     ax.set_zticks([0, -round(depth / 2), -round(depth)])
     ax.tick_params(axis="z", pad=-1, labelsize=7.5 * FONT_SCALE, colors=INK)
     ax.set_zlabel("深度 / 像素", labelpad=4, fontsize=8 * FONT_SCALE)
-    # 只留一条深度刻度，三维坐标框的其余线条对这张图没有用处
     for axis in (ax.xaxis, ax.yaxis, ax.zaxis):
         axis.pane.set_visible(False)
         axis.line.set_color((1, 1, 1, 0))
     ax.grid(False)
-    ax.set_title("(b) 把距离变换取负当作地形，米粒处凹成盆地\n"
-                 "橙点为种子，蓝线为两个盆地相遇之处",
-                 fontsize=9 * FONT_SCALE, y=0.97)
+    handles = [Line2D([], [], color=SERIES_COLORS["sam3"], lw=1.2, marker="o", markersize=4,
+                      label="种子"),
+               Line2D([], [], color=SERIES_COLORS["baseline"], lw=0, marker="o", markersize=3,
+                      label="切分线")]
+    ax.legend(handles=handles, loc="lower left", frameon=False,
+              fontsize=7.5 * FONT_SCALE, handlelength=1.2, borderaxespad=0.2)
 
-    _show(fig.add_subplot(grid[2]), label2rgb(merged, bg_label=0),
-          f"(c) 切开后为 {cluster['count']} 粒")
-
-    ensure_dir(FIG_ROOT)
-    fig.savefig(FIG_ROOT / out_name, dpi=DPI, bbox_inches="tight")
+    buffer = io.BytesIO()
+    fig.savefig(buffer, dpi=DPI, format="png")
     plt.close(fig)
-    _trim_white(FIG_ROOT / out_name)
-    return FIG_ROOT / out_name
+    buffer.seek(0)
+    image = np.asarray(Image.open(buffer).convert("RGB"))
+    ink = np.argwhere((image < 245).any(axis=2))
+    (top, left), (bottom, right) = ink.min(axis=0), ink.max(axis=0)
+    return image[max(top - 4, 0):bottom + 5, max(left - 4, 0):right + 5]
 
 
 def _trim_white(path, margin=8):
