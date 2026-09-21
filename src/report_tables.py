@@ -30,6 +30,27 @@ def _fmt(value, digits=2):
     return f"{value:.{digits}f}"
 
 
+def _best(values, better="min"):
+    """一组数里最好的那个值，缺失值不参与；用于决定哪一格加粗。"""
+    valid = [v for v in values if v is not None and not pd.isna(v)]
+    if not valid:
+        return None
+    return min(valid) if better == "min" else max(valid)
+
+
+def _mark(text, value, best):
+    """与最好值相同的那一格加粗。按显示出来的数字比较，四舍五入后并列的一起加粗。"""
+    if best is None or value is None or pd.isna(value) or text == "--":
+        return text
+    return rf"\textbf{{{text}}}" if text == _fmt_like(best, text) else text
+
+
+def _fmt_like(value, text):
+    """把 value 按 text 的小数位数格式化，便于比较显示值。"""
+    digits = len(text.split(".")[1]) if "." in text else 0
+    return f"{value:.{digits}f}"
+
+
 def _write(name, body):
     ensure_dir(TABLE_ROOT)
     path = TABLE_ROOT / name
@@ -77,7 +98,18 @@ def comparison_table():
         r"\midrule",
     ]
 
+    # 加粗只在六种几何方法之间比较，SAM 3 是另一类做法，单列在最后作参照
+    contenders = [m for m in METHOD_ORDER if m != "SAM3_teacher"]
+    columns = (("MAE", "min", 2), ("accuracy_%", "max", 2), ("worst", "min", 0))
+    best = {}
+    for dataset in ("d1", "d2", "d3"):
+        block = summary[(summary.dataset == dataset) & summary.method.isin(contenders)]
+        for column, better, _ in columns:
+            best[(dataset, column)] = _best(list(block[column]), better)
+
     for method in METHOD_ORDER:
+        if method == "SAM3_teacher":
+            lines.append(r"\midrule")
         cells = [METHOD_LABELS[method]]
         for dataset in ("d1", "d2", "d3"):
             row = summary[(summary.dataset == dataset) & (summary.method == method)]
@@ -85,7 +117,11 @@ def comparison_table():
                 cells += ["--"] * 3
                 continue
             row = row.iloc[0]
-            cells += [_fmt(row["MAE"]), _fmt(row["accuracy_%"]), _fmt(row["worst"], 0)]
+            for column, _, digits in columns:
+                text = _fmt(row[column], digits)
+                if method != "SAM3_teacher":
+                    text = _mark(text, row[column], best[(dataset, column)])
+                cells.append(text)
         lines.append(" & ".join(cells) + r" \\")
 
     lines += [r"\bottomrule", r"\end{tabular}"]
@@ -111,7 +147,8 @@ def touching_table():
         r"\midrule",
     ]
     for level, row in pivot.iterrows():
-        cells = [f"{level * 100:.0f}\\%"] + [_fmt(row[m]) for m in methods]
+        top = _best([row[m] for m in methods])
+        cells = [f"{level * 100:.0f}\\%"] + [_mark(_fmt(row[m]), row[m], top) for m in methods]
         lines.append(" & ".join(cells) + r" \\")
     lines += [r"\bottomrule", r"\end{tabular}"]
     return _write("touching.tex", "\n".join(lines))
@@ -127,6 +164,8 @@ REPORTED_ABLATIONS = (
     "foreign rejection without the width test",
     "foreign test also requiring roundness",
     "touching gate: OR instead of AND",
+    "seed pieces not merged",
+    "seed pieces not merged, beta = 0.45",
     "gray channel only",
     "with 3x3 median filter",
 )
@@ -141,6 +180,8 @@ def ablation_table():
         "no foreign-object rejection": r"去掉异物剔除",
         "foreign rejection without the width test": r"异物剔除去掉宽度判据",
         "foreign test also requiring roundness": r"异物判据附加“更圆”条件，即最初写法",
+        "seed pieces not merged": r"种子碎块不合并",
+        "seed pieces not merged, beta = 0.45": r"种子碎块不合并，$\beta$ 取 0.45，即修正前的写法",
         "no measurement-reliability gate": r"去掉可测量性门限",
         "reliability gate abstains instead of using width excess":
             r"门限触发时弃权（而非改用宽度过剩量）",
@@ -160,11 +201,14 @@ def ablation_table():
         r"消融项 & D1 & D2 & D3 \\",
         r"\midrule",
     ]
+    shown = table[table.ablation.isin(REPORTED_ABLATIONS)]
+    # 每列加粗误差最大的那一项，也就是去掉之后损失最大的那一步
+    worst = {d: _best(list(shown[d]) if d in shown else [], "max") for d in ("D1", "D2", "D3")}
     for _, row in table.iterrows():
         if row["ablation"] not in REPORTED_ABLATIONS:
             continue
         name = labels[row["ablation"]]
-        cells = [name, _fmt(row.get("D1")), _fmt(row.get("D2")), _fmt(row.get("D3"))]
+        cells = [name] + [_mark(_fmt(row.get(d)), row.get(d), worst[d]) for d in ("D1", "D2", "D3")]
         lines.append(" & ".join(cells) + r" \\")
     lines += [r"\bottomrule", r"\end{tabular}"]
     return _write("ablation.tex", "\n".join(lines))
@@ -204,8 +248,9 @@ def sam3_table():
         r"文本提示 & " + " & ".join(f"$\\tau={c:.2f}$" for c in pivot.columns) + r" \\",
         r"\midrule",
     ]
+    top = _best(list(pivot.values.ravel()))
     for prompt, row in pivot.iterrows():
-        lines.append(f"\\texttt{{{prompt}}} & " + " & ".join(_fmt(v) for v in row) + r" \\")
+        lines.append(f"\\texttt{{{prompt}}} & " + " & ".join(_mark(_fmt(v), v, top) for v in row) + r" \\")
     lines += [r"\bottomrule", r"\end{tabular}"]
     return _write("sam3.tex", "\n".join(lines))
 
@@ -224,10 +269,12 @@ def sam3_matrix_table():
         r"文本提示 & MAE & $\tau^\ast$ & MAE & $\tau^\ast$ & MAE & $\tau^\ast$ \\",
         r"\midrule",
     ]
+    top = {key: _best(list(table[f"{key}_MAE"])) for key in ("d1", "d2", "d3")}
     for _, row in table.iterrows():
         cells = [f"\\texttt{{{row['prompt']}}}"]
         for key in ("d1", "d2", "d3"):
-            cells += [_fmt(row[f"{key}_MAE"]), _fmt(row[f"{key}_thr"])]
+            value = row[f"{key}_MAE"]
+            cells += [_mark(_fmt(value), value, top[key]), _fmt(row[f"{key}_thr"])]
         lines.append(" & ".join(cells) + r" \\")
     lines += [r"\bottomrule", r"\end{tabular}"]
     return _write("sam3_matrix.tex", "\n".join(lines))
@@ -301,7 +348,9 @@ def robustness_table():
             reference = b1.loc[(axis, row["level"]), "MAE"] if (axis, row["level"]) in b1.index else float("nan")
             lines.append(" & ".join([
                 name, fmt.format(row["level"] * 100 if axis == "contrast" else row["level"]), _fmt(row["MAE"]), _fmt(row["median_AE"]),
-                f"{int(row['blowups'])}/{int(row['n'])}", _fmt(reference),
+                # 出现崩溃的格子加粗，一眼能看出只有模糊会让方法失效
+                (rf"\textbf{{{int(row['blowups'])}/{int(row['n'])}}}" if row["blowups"] > 0
+                 else f"{int(row['blowups'])}/{int(row['n'])}"), _fmt(reference),
             ]) + r" \\")
         lines.append(r"\midrule")
     lines[-1] = r"\bottomrule"
@@ -326,7 +375,18 @@ def cost_table():
         return f"{value:.2f}" if value < 10 else f"{value:.1f}"
 
     def cells(fn):
-        return " & ".join(fn(key) for key in cols)
+        """每行里数值最小的一格加粗，即这一项上最省的做法。"""
+        texts = [fn(key) for key in cols]
+        numbers = []
+        for text in texts:
+            try:
+                numbers.append(float(text.replace(" M", "")))
+            except ValueError:
+                numbers.append(None)
+        top = _best(numbers)
+        return " & ".join(
+            rf"\textbf{{{t}}}" if n is not None and top is not None and n == top else t
+            for t, n in zip(texts, numbers))
 
     lines = [
         r"\begin{tabular}{lrrrrr}",
@@ -354,6 +414,14 @@ def cost_table():
     return _write("cost.tex", "\n".join(lines))
 
 
+def _student_cells(block, methods):
+    """一行误差。教师是参照，加粗只在其余三种做法之间比。"""
+    errors = {k: (block[k] - block.truth).abs().mean() for k, _ in methods}
+    top = _best([v for k, v in errors.items() if k != "sam3"])
+    return " & ".join(_fmt(errors[k]) if k == "sam3" else _mark(_fmt(errors[k]), errors[k], top)
+                      for k, _ in methods)
+
+
 def student_table():
     """Student against the classical pipeline and the teacher, on the held-out images."""
     path = METRICS_ROOT / "student_test.csv"
@@ -371,11 +439,9 @@ def student_table():
         block = table[table.dataset == dataset]
         if block.empty:
             continue
-        cells = " & ".join(_fmt((block[k] - block.truth).abs().mean()) for k, _ in methods)
-        lines.append(f"{label} & {len(block)} & {cells}" + r" \\")
+        lines.append(f"{label} & {len(block)} & {_student_cells(block, methods)}" + r" \\")
     lines.append(r"\midrule")
-    cells = " & ".join(_fmt((table[k] - table.truth).abs().mean()) for k, _ in methods)
-    lines.append(r"合计 & " + str(len(table)) + " & " + cells + r" \\")
+    lines.append(r"合计 & " + str(len(table)) + " & " + _student_cells(table, methods) + r" \\")
     lines += [r"\bottomrule", r"\end{tabular}"]
     return _write("student.tex", "\n".join(lines))
 

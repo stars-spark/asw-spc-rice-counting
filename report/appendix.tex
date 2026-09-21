@@ -33,9 +33,8 @@
 \subsection{合成粘连图 D2}
 
 图 \ref{fig:app_d2} 的场景没有粘连，两种方法都数出 91 粒，和真值一致。
-第二个场景粘连率 40\%，真值 93 粒，本文方法 92 粒、SAM 3 94 粒。
-图 \ref{fig:app_d2b} 中可以看到十余个虚线框。
-这说明相当一部分粘连块的粒数是按面积补出的，并非真正切开。
+第二个场景粘连率 40\%，真值 93 粒，本文方法 93 粒、SAM 3 94 粒。
+图 \ref{fig:app_d2b} 中只有两处虚线框是按面积补出粒数的，其余粘连块都被真正切开了。
 
 \begin{cfigure}
   \includegraphics[width=\textwidth]{appendix_d2_a.png}
@@ -71,5 +70,5 @@ SAM 3 的轮廓则几乎贴合每一粒米。
 \section{代码、数据与复现方式}
 \label{app:repro}
 
-代码、数据来源说明与复现步骤都放在 \url{https://github.com/stars-spark/asw-spc-rice-counting}。
+代码、数据来源说明与复现步骤都放在 \url{https://github.com/stars-spark/asw-spc-rice-counting} 欢迎老师检查！
 D1、D3 与 D2 所用的单粒米素材取自 Roboflow Universe 上的公开数据集。

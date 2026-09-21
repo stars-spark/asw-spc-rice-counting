@@ -4,7 +4,9 @@ from skimage.measure import label
 from skimage.morphology import h_maxima
 from skimage.segmentation import watershed
 
-BETA = 0.45
+BETA = 0.10
+MIN_DEPTH_PX = 1.0
+SEED_MERGE_RATIO = 0.6
 TOUCH_AREA_RATIO = 1.2
 TOUCH_SOLIDITY_MARGIN = 0.06
 MIN_TRUSTED_MINOR_PX = 4.5
@@ -35,16 +37,33 @@ def distance_transform(mask):
 
 
 def adaptive_markers(dist, minor0, beta=BETA):
-    """Seeds = regional maxima of the distance map surviving an h-maxima of depth beta*minor0/2.
+    """Seeds = peaks of the distance map at least h deep, with fragments of one peak merged.
 
-    Inside one grain the distance map forms a flat ridge, so a plain local-maximum search
-    fires several times along it; h-maxima merges that whole ridge into a single seed.
-    Between two touching grains the map dips by roughly half the neck width, so the depth
-    threshold is a fraction of the calibrated grain half-width and rescales with the image
-    instead of being a fixed pixel count.
+    Two things decide whether a watershed cut is real, and each gets its own scale.
+
+    Depth: between two touching grains the map dips at the neck, inside one grain it does
+    not, so only peaks that stand at least h above their surroundings become seeds. h
+    follows the calibrated grain half-width, but never goes below one pixel, the resolution
+    the distance transform is measured in; smaller undulations are pixelation of the
+    boundary, not necks. Plump grains that touch along a broad front leave a shallow neck,
+    which is why beta is small.
+
+    Spacing: h_maxima on a floating-point map breaks one flat peak into several pieces that
+    differ only by rounding, and each piece would otherwise become a seed of its own and cut
+    one grain in two. Measured on the synthetic set, seed pieces that belong to one grain lie
+    at most 0.55 grain widths apart and seeds of different grains at least 0.67, so pieces
+    closer than SEED_MERGE_RATIO grain widths are joined into one seed.
+
+    The two errors are coupled. With the pieces left unmerged, lowering beta multiplied the
+    duplicate seeds, so tuning pushed beta up to 0.45 - high enough to flatten the real necks
+    between plump grains, which then went uncut and were counted by area instead.
     """
-    h = max(beta * minor0 / 2.0, 1e-3)
-    return label(h_maxima(dist, h) > 0)
+    h = max(beta * minor0 / 2.0, MIN_DEPTH_PX)
+    peaks = (h_maxima(dist, h) > 0).astype(np.uint8)
+    radius = max(1, int(round(SEED_MERGE_RATIO * minor0 / 2.0)))
+    disc = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * radius + 1, 2 * radius + 1))
+    joined = label(cv2.dilate(peaks, disc) > 0)
+    return np.where(peaks > 0, joined, 0).astype(np.int32)
 
 
 def is_foreign_object(component, calib):

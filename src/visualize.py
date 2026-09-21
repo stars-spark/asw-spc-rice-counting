@@ -1289,7 +1289,7 @@ def seed_depth_figure(out_name="seed_depth.pdf"):
     calib = pre["calib"]
 
     # 挑一个恰好出两个种子的两粒块，取谷最深的那个，差别最直观
-    h = segment.BETA * calib["minor0"] / 2.0
+    h = max(segment.BETA * calib["minor0"] / 2.0, segment.MIN_DEPTH_PX)
     best = None
     for component in calib["components"]:
         if not 1.6 * calib["a0"] <= component["area"] <= 2.4 * calib["a0"]:

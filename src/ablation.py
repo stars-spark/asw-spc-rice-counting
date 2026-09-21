@@ -7,6 +7,8 @@ import argparse
 from contextlib import contextmanager
 
 import numpy as np
+from skimage.measure import label
+from skimage.morphology import h_maxima
 import pandas as pd
 
 from src import calibrate, correct, counter, evaluate, io_utils, preprocess, segment, synth
@@ -114,7 +116,17 @@ def counting_ablations(data):
 
     segment.is_touching = original
 
-    for beta in (0.2, 0.3, 0.45, 0.6, 0.8, 1.0):
+    # 不合并同一峰顶碎出来的重复种子，即修正前的做法
+    def unmerged(dist, minor0, beta=segment.BETA):
+        h = max(beta * minor0 / 2.0, segment.MIN_DEPTH_PX)
+        return label(h_maxima(dist, h) > 0)
+
+    with patched(segment, adaptive_markers=unmerged):
+        record("seed pieces not merged", lambda items: mae(items))
+    with patched(segment, adaptive_markers=unmerged):
+        record("seed pieces not merged, beta = 0.45", lambda items: mae(items, beta=0.45))
+
+    for beta in (0.05, 0.1, 0.15, 0.2, 0.3, 0.45):
         record(f"beta = {beta}", lambda items, b=beta: mae(items, beta=b))
 
     return rows
