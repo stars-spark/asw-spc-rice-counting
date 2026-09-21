@@ -915,7 +915,7 @@ def b3_seed_figure(out_name="b3_seeds.png"):
     return FIG_ROOT / out_name
 
 
-def terrain_figure(out_name="terrain_3d.png", elev=32, azim=-58, z_exaggeration=0.9):
+def terrain_figure(out_name="terrain_3d.png", elev=30, azim=-58, z_exaggeration=0.65):
     """把距离变换当成地形来看。
 
     注水分割真正淹没的曲面是距离变换的负值。米粒内部离背景远，取负之后陷成一个盆地；
@@ -949,28 +949,33 @@ def terrain_figure(out_name="terrain_3d.png", elev=32, azim=-58, z_exaggeration=
               f"(c) 切开后为 {cluster['count']} 粒"]
 
     # 三维面板先单独渲染成图片，再与另两格一起按普通图像排版。
-    # 这样三格都是二维坐标轴，高度相同、标题落在同一条线上，
-    # 且三维图里的字按最终显示尺寸渲染，与左右两格的字一样大。
+    # 地形是这张图的主角，占右侧一大格；二值图与切分结果上下叠在左侧，
+    # (a) 与 (b) 顶边对齐、标题落在同一条线上。三维图按最终显示尺寸渲染，
+    # 刻度与图例的字号因此与报告里其它插图一致。
     side_aspect = mask.shape[1] / mask.shape[0]
-    size = (4.4, 3.0)
-    for _ in range(2):
+    total, gap, title_gap, top_space = 9.0, 0.25, 0.42, 0.40
+    size = (5.6, 4.0)
+    for _ in range(3):
         terrain = _render_terrain(dist, mask, merged, markers, elev, azim,
                                   z_exaggeration, size)
         mid_aspect = terrain.shape[1] / terrain.shape[0]
-        height = (9 - 0.35) / (2 * side_aspect + mid_aspect)
-        shown = height * mid_aspect                    # 中间一格最终显示的宽度，英寸
-        rendered = terrain.shape[1] / DPI              # 渲染出来的宽度，英寸
-        if abs(shown / rendered - 1) < 0.04:
+        # 右格宽 wr、高 wr/mid_aspect；左侧两格各高 (右格高 - title_gap)/2
+        wr = (total - gap + side_aspect * title_gap / 2) / (1 + side_aspect / (2 * mid_aspect))
+        rendered = terrain.shape[1] / DPI
+        if abs(wr / rendered - 1) < 0.03:
             break
-        size = (size[0] * shown / rendered, size[1] * shown / rendered)
+        size = (size[0] * wr / rendered, size[1] * wr / rendered)
     panels[1] = terrain
+    hr = wr / mid_aspect
+    hl = (hr - title_gap) / 2
+    wl = hl * side_aspect
 
-    fig = plt.figure(figsize=(9, height + 0.45))
-    grid = fig.add_gridspec(1, 3, width_ratios=[side_aspect, mid_aspect, side_aspect],
-                            wspace=0.04, left=0, right=1, bottom=0,
-                            top=height / (height + 0.45))
-    for index, (image, title) in enumerate(zip(panels, titles)):
-        _show(fig.add_subplot(grid[index]), image, title, "gray" if index == 0 else None)
+    fig = plt.figure(figsize=(total, hr + top_space))
+    fw, fh = total, hr + top_space
+    boxes = [(0, hr - hl, wl, hl), (total - wr, 0, wr, hr), (0, 0, wl, hl)]
+    for index, ((x, y, w, h), image, title) in enumerate(zip(boxes, panels, titles)):
+        ax = fig.add_axes([x / fw, y / fh, w / fw, h / fh])
+        _show(ax, image, title, "gray" if index == 0 else None)
 
     ensure_dir(FIG_ROOT)
     fig.savefig(FIG_ROOT / out_name, dpi=DPI, bbox_inches="tight")
@@ -996,7 +1001,12 @@ def _render_terrain(dist, mask, merged, markers, elev, azim, z_exaggeration, siz
                     facecolors=plt.cm.magma(dist / max(depth, 1e-6)), shade=False, zorder=1)
 
     # 种子画成从盆底竖到地面的一根杆，否则俯视时会被盆壁挡住
-    seeds = np.argwhere(markers > 0)
+    # 一个种子常占好几个像素，每个种子只取其中最深的一点画一根杆
+    seeds = []
+    for value in np.unique(markers[markers > 0]):
+        spots = np.argwhere(markers == value)
+        seeds.append(spots[np.argmax(dist[spots[:, 0], spots[:, 1]])])
+    seeds = np.array(seeds).reshape(-1, 2)
     for row, col in seeds:
         ax.plot([col, col], [row, row], [-dist[row, col], 0.6],
                 color=SERIES_COLORS["sam3"], lw=1.0, zorder=4)

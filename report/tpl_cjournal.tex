@@ -10,8 +10,9 @@
 % 参考文献按惯例用小五号，条目间距收紧
 \renewcommand{\bibfont}{\zihao{-5}}
 \setlength{\bibsep}{0pt plus 0.5pt}
-% 在每个 \section 前设置浮动体屏障，避免浮动体跨节积压后被集中刷成整页图。
-\usepackage[section]{placeins}
+% 不在每节前设浮动体屏障：屏障遇到尚未排出的图会强制换页，留下大半页空白。
+% 配合 flafter，图仍排在引用它的文字之后，至多落到下一页顶部。
+\usepackage{placeins}
 \usepackage{titlesec}
 \usepackage{fancyhdr}
 \usepackage[hidelinks]{hyperref}
