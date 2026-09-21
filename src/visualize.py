@@ -143,6 +143,43 @@ METRICS_ROOT = RESULTS_ROOT / "metrics"
 DPI = 150
 
 
+
+# 分块上色用的颜色，彼此差别明显，且都不接近黑色背景
+PART_COLORS = np.array([
+    (230, 25, 75), (60, 180, 75), (255, 225, 25), (0, 130, 200), (245, 130, 48),
+    (145, 30, 180), (70, 240, 240), (240, 50, 230), (210, 245, 60), (250, 190, 212),
+], dtype=np.float64) / 255.0
+
+
+def distinct_label_rgb(labels):
+    """给每个标号上色，保证相邻的两块颜色不同。
+
+    skimage 的 label2rgb 按标号循环取色，调色板只有十种颜色，第 7 块和第 17 块就是同一种。
+    两块恰好挨着时，画出来像一整块没切开，读者会误以为切错了。
+    这里按邻接关系贪心着色：每块取邻居都没用过的第一种颜色。
+    """
+    from scipy import ndimage
+
+    labels = np.asarray(labels)
+    out = np.zeros(labels.shape + (3,), dtype=np.float64)
+    ids = [int(v) for v in np.unique(labels) if v != 0]
+    # 按面积从大到小着色，大块先挑颜色
+    ids.sort(key=lambda v: -int((labels == v).sum()))
+    colour_of = {}
+    ring = np.ones((3, 3), dtype=bool)
+    for v in ids:
+        piece = labels == v
+        grown = ndimage.binary_dilation(piece, structure=ring, iterations=3)
+        neighbours = set(int(n) for n in np.unique(labels[grown & ~piece]) if n != 0)
+        used = {colour_of[n] for n in neighbours if n in colour_of}
+        free = [c for c in range(len(PART_COLORS)) if c not in used] or list(range(len(PART_COLORS)))
+        # 邻居没用过的颜色里，挑全图用得最少的一种，十种颜色都能铺开
+        counts = {c: list(colour_of.values()).count(c) for c in free}
+        colour_of[v] = min(free, key=lambda c: (counts[c], c))
+        out[piece] = PART_COLORS[colour_of[v]]
+    return out
+
+
 def _show(ax, image, title, cmap=None, fontsize=None):
     """图像面板。字号默认跟随 rcParams，这样同一张图里各面板的字一样大。"""
     ax.imshow(image, cmap=cmap)
@@ -173,7 +210,7 @@ def pipeline_figure(image_bgr, out_name="pipeline.png"):
     _show(axes[0, 0], cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB), "(a) 输入图像")
     _show(axes[0, 1], pre["channel"], "(b) 选出的通道", "gray")
     _show(axes[0, 2], mask, "(c) 二值图", "gray")
-    _show(axes[0, 3], label2rgb(calib["labels"], bg_label=0), f"(d) 连通域 {calib['n_components']} 个")
+    _show(axes[0, 3], distinct_label_rgb(calib["labels"]), f"(d) 连通域 {calib['n_components']} 个")
     _show(axes[1, 0], dist, "(e) 距离变换", "magma")
 
     # Seeds are a handful of pixels each; dilate them in proportion to the image width so
@@ -225,7 +262,7 @@ def cluster_detail_figure(image_bgr, out_name="cluster_detail.png", n_clusters=2
         seed_view = np.dstack([cluster["mask"] // 3] * 3)
         seed_view[grown > 0] = (255, 40, 40)
         _show(axes[row][2], seed_view, f"种子（红）：{cluster['markers'].max()} 个")
-        _show(axes[row][3], label2rgb(cluster["merged"], bg_label=0),
+        _show(axes[row][3], distinct_label_rgb(cluster["merged"]),
               f"校正后：{cluster['count']} 粒")
 
     fig.tight_layout()
@@ -671,7 +708,7 @@ def terrain_figure(out_name="terrain_3d.png", elev=30, azim=-58, z_exaggeration=
     mask = np.pad(np.asarray(cluster["mask"]) > 0, pad)
     merged = np.pad(np.asarray(cluster["merged"]), pad)
     markers = np.pad(np.asarray(cluster["markers"]), pad)
-    panels = [mask.astype(np.float32), None, label2rgb(merged, bg_label=0)]
+    panels = [mask.astype(np.float32), None, distinct_label_rgb(merged)]
     titles = ["(a) 粘连块的二值图", "(b) 取距离变换的负值当作地形",
               f"(c) 切开后为 {cluster['count']} 粒"]
 
