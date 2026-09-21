@@ -24,6 +24,9 @@ _EXTRA_FONT_GLOBS = (
     "~/.local/share/texlive/*/texmf-dist/fonts/opentype/public/lm/lmroman10-regular.otf",
     "/usr/share/texlive/texmf-dist/fonts/opentype/public/lm/lmroman10-regular.otf",
     "/usr/share/texmf/fonts/opentype/public/lm/lmroman10-regular.otf",
+    # 柱顶数值用粗体，Latin Modern 的粗体是单独一个文件
+    "~/.local/share/texlive/*/texmf-dist/fonts/opentype/public/lm/lmroman10-bold.otf",
+    "/usr/share/texlive/texmf-dist/fonts/opentype/public/lm/lmroman10-bold.otf",
 )
 
 
@@ -234,75 +237,6 @@ def cluster_detail_figure(image_bgr, out_name="cluster_detail.png", n_clusters=2
     return FIG_ROOT / out_name
 
 
-def calibration_figure(image_bgr, out_name="calibration.png"):
-    with plt.rc_context(_fonts(PLOT_FONT_SCALE)):
-        return _calibration_figure(image_bgr, out_name)
-
-
-def _calibration_figure(image_bgr, out_name="calibration.png"):
-    """Log-area density with the estimated A0 and its multiples."""
-    pre = preprocess.preprocess(image_bgr)
-    calib = pre["calib"]
-    areas = np.array([c["area"] for c in calib["components"]
-                      if c["area"] >= calibrate.NOISE_FLOOR_PX])
-    _, debug = calibrate.estimate_single_area(areas)
-    if debug is None:
-        return None
-
-    fig, ax = plt.subplots(figsize=(7.5, 4.2))
-    ax.hist(np.log(areas), bins=40, density=True, alpha=0.35, color="steelblue", label="面积直方图")
-    ax.plot(debug["grid"], debug["density"], color="darkblue", lw=2, label="核密度估计")
-    for k in (1, 2, 3):
-        ax.axvline(np.log(k * calib["a0"]), color="crimson" if k == 1 else "gray",
-                   ls="--" if k == 1 else ":",
-                   label=f"$A_0$ = {calib['a0']:.0f} px" if k == 1 else f"{k}$A_0$")
-    # 同一行里既有中文又有 $...$ 时，整行会走数学字体，中文便成了方框，
-    # 所以这类标签一律写成普通文字。
-    ax.set_xlabel("连通域面积的对数 ln S")
-    ax.set_ylabel("概率密度")
-    ax.legend()
-
-    fig.tight_layout()
-    ensure_dir(FIG_ROOT)
-    fig.savefig(FIG_ROOT / out_name, dpi=DPI, bbox_inches="tight")
-    plt.close(fig)
-    return FIG_ROOT / out_name
-
-
-def error_curve_figure(out_name="error_vs_touching.png"):
-    with plt.rc_context(_fonts(PLOT_FONT_SCALE)):
-        return _error_curve_figure(out_name)
-
-
-def _error_curve_figure(out_name="error_vs_touching.png"):
-    """MAE against the synthetic touching level, per method."""
-    per_image = pd.read_csv(METRICS_ROOT / "per_image.csv")
-    d2 = per_image[(per_image.dataset == "d2") & per_image.touch_prob.notna()].copy()
-    d2["abs_err"] = d2["error"].abs()
-    table = d2.groupby(["touch_prob", "method"])["abs_err"].mean().unstack()
-
-    fig, ax = plt.subplots(figsize=(7.5, 4.4))
-    for method in table.columns:
-        if method.startswith("Ours"):
-            style = dict(lw=2.8, marker="o", zorder=5)
-        elif method == "B4_erosion_watershed":
-            # B4 reproduces B1 exactly on this set, so a solid line would hide B1 entirely.
-            style = dict(lw=1.8, marker="s", ls="--", alpha=0.9)
-        else:
-            style = dict(lw=1.4, marker="s", alpha=0.8)
-        ax.plot(table.index * 100, table[method], label=METHOD_CN.get(method, method), **style)
-    ax.set_xlabel("粘连率／%")
-    ax.set_ylabel("平均绝对误差／粒")
-    ax.grid(alpha=0.3)
-    ax.legend()
-
-    fig.tight_layout()
-    ensure_dir(FIG_ROOT)
-    fig.savefig(FIG_ROOT / out_name, dpi=DPI, bbox_inches="tight")
-    plt.close(fig)
-    return FIG_ROOT / out_name
-
-
 ROBUSTNESS_AXES = {
     "blur": ("高斯模糊", "σ／粒宽"),
     "noise": ("加性噪声", "σ／灰阶"),
@@ -421,35 +355,6 @@ def render_comparison_figure(prompt="white seed", threshold=0.40, picks=None,
     return written
 
 
-def scatter_figure(out_name="pred_vs_true.png", datasets=("d1", "d2", "d3")):
-    with plt.rc_context(_fonts(SCATTER_FONT_SCALE)):
-        return _scatter_figure(out_name, datasets)
-
-
-def _scatter_figure(out_name="pred_vs_true.png", datasets=("d1", "d2", "d3")):
-    """Predicted against true counts for the proposed method."""
-    per_image = pd.read_csv(METRICS_ROOT / "per_image.csv")
-    ours = per_image[per_image.method == "Ours_ASW_SPC"]
-
-    fig, axes = plt.subplots(1, len(datasets), figsize=(3.2 * len(datasets), 3.4))
-    for ax, name in zip(np.atleast_1d(axes), datasets):
-        block = ours[ours.dataset == name]
-        truth, pred = block["gt"], block["pred"]
-        lo, hi = truth.min() * 0.9, truth.max() * 1.1
-        ax.plot([lo, hi], [lo, hi], color="gray", ls="--", lw=1)
-        ax.scatter(truth, pred, s=14, alpha=0.6, color="steelblue")
-        ax.set_xlabel("真值／粒")
-        ax.set_ylabel("预测值／粒")
-        ax.set_title(f"{dataset_label(name)}：MAE {block['error'].abs().mean():.2f} 粒")
-        ax.grid(alpha=0.3)
-
-    fig.tight_layout()
-    ensure_dir(FIG_ROOT)
-    fig.savefig(FIG_ROOT / out_name, dpi=DPI, bbox_inches="tight")
-    plt.close(fig)
-    return FIG_ROOT / out_name
-
-
 def scope_failure_figure(out_name="scope_failure.png"):
     """Two photographs the method gets wrong, with the foreground its selector chose.
 
@@ -560,44 +465,6 @@ def appendix_renders_figure(dataset, n_scenes=2, prompt="white seed", threshold=
     return written
 
 
-def abstract_figure(out_name="graphical_abstract.png"):
-    """首页图文摘要：上排两个场景的逐粒结果，下排两幅定量图。
-
-    题目问的是"数出多少粒"和"解决连体计数不准"，这几幅各答一问：
-    上排说明程序把哪些区域算作了几粒，左下说明粘连加重时误差并未跟着涨，
-    右下把四种做法放在同一批图上比较。
-
-    两幅定量图共用一套配色，同一种方法在哪里都是同一个颜色；
-    字号统一由 rcParams 给出，不在各面板单独设置。
-    """
-    from src import counter, render, synth
-
-    real = io_utils.load_d1()[0]
-    dense = max(synth.load_d2(), key=lambda s: s.get("touch_prob") or 0)
-
-    with plt.rc_context(_fonts(ABSTRACT_FONT_SCALE)):
-        fig = plt.figure(figsize=(9.8, 8.4))
-        grid = fig.add_gridspec(2, 2, height_ratios=[1.25, 1], hspace=0.2, wspace=0.22)
-
-        for column, (sample, label) in enumerate((
-                (real, "真实照片"),
-                (dense, f"合成图，粘连率 {int((dense.get('touch_prob') or 0) * 100)}%"))):
-            image = io_utils.imread(sample["path"])
-            labels, info, total, _ = counter.label_image(image)
-            drawn = render.draw(image, labels, info, banner_lines=None)
-            _show(fig.add_subplot(grid[0, column]),
-                  cv2.cvtColor(drawn, cv2.COLOR_BGR2RGB),
-                  f"{label}：数出 {total} 粒（真值 {sample['gt_count']} 粒）")
-
-        _abstract_curve(fig.add_subplot(grid[1, 0]))
-        _abstract_bars(fig.add_subplot(grid[1, 1]))
-
-    ensure_dir(FIG_ROOT)
-    fig.savefig(FIG_ROOT / out_name, dpi=DPI, bbox_inches="tight")
-    plt.close(fig)
-    return FIG_ROOT / out_name
-
-
 def _tidy(ax):
     """去掉上右边框、让网格退到背景里：坐标系是背景，数据才是主角。"""
     for side in ("top", "right"):
@@ -607,84 +474,6 @@ def _tidy(ax):
     ax.tick_params(colors=INK, length=3)
     ax.grid(color=GRID, alpha=0.6, lw=0.6)
     ax.set_axisbelow(True)
-
-
-def _abstract_curve(ax):
-    """误差随粘连率的变化。只留两条线，首页要的是对比清楚。"""
-    per_image = pd.read_csv(METRICS_ROOT / "per_image.csv")
-    d2 = per_image[(per_image.dataset == "d2") & per_image.touch_prob.notna()].copy()
-    d2["abs_err"] = d2["error"].abs()
-    curve = d2.groupby(["touch_prob", "method"])["abs_err"].mean().unstack()
-
-    for method, label, colour, style in (
-            ("B1_components", "直接数连通域", SERIES_COLORS["baseline"], "--"),
-            ("Ours_ASW_SPC", "方法一", SERIES_COLORS["ours"], "-")):
-        if method in curve:
-            ax.plot(curve.index * 100, curve[method], label=label, color=colour,
-                    ls=style, lw=2.0, marker="o", markersize=5.5)
-    ax.set_xlabel("粘连率／%", color=INK)
-    ax.set_ylabel("平均绝对误差／粒", color=INK)
-    ax.set_title("误差随粘连程度的变化", color=INK)
-    _tidy(ax)
-    ax.legend(frameon=False, loc="upper left", labelcolor=INK)
-
-
-def student_bars_figure(out_name="student_bars.png"):
-    """把图文摘要里的柱状图单独出一张，供仓库的 README 使用。"""
-    with plt.rc_context(_fonts(PLOT_FONT_SCALE)):
-        fig, ax = plt.subplots(figsize=(7.0, 4.0))
-        _abstract_bars(ax)
-        fig.tight_layout()
-        ensure_dir(FIG_ROOT)
-        fig.savefig(FIG_ROOT / out_name, dpi=DPI, bbox_inches="tight")
-        plt.close(fig)
-    return FIG_ROOT / out_name
-
-
-def _abstract_bars(ax):
-    """四种做法在同一批测试图上的误差。
-
-    同一批是关键：学生模型只在留出集上测过，把它的数字与另外几种在全集上的
-    数字并排，比较就不成立了，所以这里四者用的都是那 162 张测试图。
-    """
-    table = pd.read_csv(METRICS_ROOT / "student_test.csv")
-    series = [(k, label, SERIES_COLORS[key]) for k, label, key in (
-        ("b1", "直接数连通域", "baseline"), ("ours", "方法一", "ours"),
-        ("student", "方法二：学生模型", "student"), ("sam3", "SAM 3", "sam3"))
-        if k in table.columns]
-    datasets = [d for d in ("d1", "d2", "d3") if (table.dataset == d).any()]
-
-    width = 0.78 / len(series)
-    tallest = (0.0, None)
-    for index, (key, label, colour) in enumerate(series):
-        values = [float((table[table.dataset == d][key]
-                         - table[table.dataset == d].truth).abs().mean()) for d in datasets]
-        offsets = [i + index * width - 0.39 + width / 2 for i in range(len(datasets))]
-        # 0.92 的宽度留出柱间缝隙，相邻柱子不会糊在一起
-        ax.bar(offsets, values, width * 0.92, label=label, color=colour)
-        for x, value in zip(offsets, values):
-            if value > tallest[0]:
-                tallest = (value, (x, value))
-
-    # 只标注最高的一根：它是这幅图要说的事（不处理粘连时误差有多大），
-    # 其余数值在表 9 中列全，不必每根柱子都写数字。
-    if tallest[1]:
-        x, value = tallest[1]
-        ax.annotate(f"{value:.1f} 粒", xy=(x, value), xytext=(0, 4),
-                    textcoords="offset points", ha="center", color=INK,
-                    fontsize=plt.rcParams["xtick.labelsize"])
-
-    ax.set_xticks(range(len(datasets)))
-    ax.set_xticklabels([dataset_label(d).replace("（", "\n（") for d in datasets])
-    ax.set_ylabel("平均绝对误差／粒", color=INK)
-    ax.set_title("四种做法在同一批测试图上的误差", color=INK)
-    ax.set_ylim(0, tallest[0] * 1.12 if tallest[0] else 1)
-    _tidy(ax)
-    ax.grid(axis="x", visible=False)
-    # 四条中文图例放在图内总会压到柱子或标注，改为置于图下横排两列
-    ax.legend(frameon=False, labelcolor=INK, ncol=2,
-              loc="upper center", bbox_to_anchor=(0.5, -0.20), columnspacing=1.4,
-              handlelength=1.2, handletextpad=0.5)
 
 
 # --------------------------------------------------- 与正文对照的局部说明图
@@ -808,66 +597,6 @@ def touching_criterion_figure(out_name="touching_criterion.png"):
                          f"最大内切圆直径 {2 * radius:.0f} 像素",
                          fontsize=plt.rcParams["axes.titlesize"])
             ax.axis("off")
-    ensure_dir(FIG_ROOT)
-    fig.savefig(FIG_ROOT / out_name, dpi=DPI, bbox_inches="tight")
-    plt.close(fig)
-    return FIG_ROOT / out_name
-
-
-def seed_depth_figure(out_name="seed_depth.png"):
-    """3.5 用图：一粒内部是浅坑、两粒之间是深谷，所以该看深度而不是距离。"""
-    from src import synth
-    sample = max(synth.load_d2(), key=lambda s: s.get("touch_prob") or 0)
-    image = io_utils.imread(sample["path"])
-    pre = preprocess.preprocess(image)
-    calib = pre["calib"]
-
-    # 挑一个确实被切成两半的粘连块，只出一个种子的块说明不了"深谷"这件事
-    h = segment.BETA * calib["minor0"] / 2.0
-    chosen = None
-    for component in sorted((c for c in calib["components"]
-                             if 1.6 * calib["a0"] <= c["area"] <= 3.2 * calib["a0"]),
-                            key=lambda c: c["solidity"]):
-        piece = (calib["labels"] == component["label"]).astype(np.uint8)
-        sub, _ = _crop_around(piece, component["bbox"], pad_ratio=0.25)
-        dist = cv2.distanceTransform(sub, cv2.DIST_L2, 5)
-        markers = segment.adaptive_markers(dist, calib["minor0"])
-        if int(markers.max()) >= 2:
-            chosen = (sub, dist, markers)
-            break
-    if chosen is None:
-        return None
-    sub, dist, markers = chosen
-
-    centres = [tuple(np.mean(np.nonzero(markers == i), axis=1))
-               for i in range(1, int(markers.max()) + 1)]
-    peaks = sorted(centres, key=lambda rc: -dist[int(rc[0]), int(rc[1])])[:2]
-    (r0, c0), (r1, c1) = peaks
-    steps = int(max(abs(r1 - r0), abs(c1 - c0))) + 1
-    rows = np.linspace(r0, r1, steps).astype(int)
-    cols = np.linspace(c0, c1, steps).astype(int)
-    profile = dist[rows, cols]
-
-    with plt.rc_context(_fonts(ABSTRACT_FONT_SCALE)):
-        fig, axes = plt.subplots(1, 2, figsize=(9.6, 3.8),
-                                 gridspec_kw={"width_ratios": [1, 1.5]})
-        axes[0].imshow(dist, cmap="magma")
-        axes[0].plot([c0, c1], [r0, r1], color="#00A0B0", lw=1.8, ls="--")
-        axes[0].scatter([c0, c1], [r0, r1], s=26, color="#00A0B0")
-        axes[0].set_title("粘连块的距离变换\n虚线连接两个种子，即右图剖面的取法",
-                          fontsize=plt.rcParams["axes.titlesize"])
-        axes[0].axis("off")
-
-        ax = axes[1]
-        ax.plot(profile, color=SERIES_COLORS["ours"], lw=2.0)
-        ax.axhline(h, color=SERIES_COLORS["baseline"], ls="--", lw=1.6,
-                   label=f"h-maxima 的深度门限 h = {h:.1f}")
-        ax.set_xlabel("自一个种子到另一个种子的位置／像素")
-        ax.set_ylabel("到背景的距离／像素")
-        ax.set_title("两粒之间是一道深谷\n谷底低于门限，两个峰才会被分开",
-                     fontsize=plt.rcParams["axes.titlesize"])
-        _tidy(ax)
-        ax.legend(frameon=False, labelcolor=INK, loc="lower center")
     ensure_dir(FIG_ROOT)
     fig.savefig(FIG_ROOT / out_name, dpi=DPI, bbox_inches="tight")
     plt.close(fig)
@@ -1290,6 +1019,290 @@ def student_vs_geometric_figure(out_name="student_vs_ours.png", file_name=None):
     return FIG_ROOT / out_name
 
 
+# ------------------------------------------------------------------ 数据图
+# 这一组都按 plotstyle 的规矩画：画布即版心宽、字号即印刷字号、输出 PDF 矢量图，
+# 系列的颜色与标记整项取自 plotstyle.SERIES，保存前查宽度与重叠，不合格不写文件。
+
+def _data_fig(height, **kw):
+    from src import plotstyle as ps
+    old = ps.apply()
+    fig, axes = plt.subplots(figsize=(ps.TEXT_WIDTH_IN, height), **kw)
+    fig._rc_before = old
+    return fig, axes
+
+
+def _save_data_fig(fig, out_name):
+    """保存后把 rcParams 还原，同一进程里接着画的图像类插图不受影响。"""
+    from src import plotstyle as ps
+    ensure_dir(FIG_ROOT)
+    try:
+        return ps.save_checked(fig, FIG_ROOT / out_name)
+    finally:
+        plt.close(fig)
+        matplotlib.rcParams.update(getattr(fig, "_rc_before", {}))
+
+
+def calibration_figure(image_bgr, out_name="calibration.pdf"):
+    """对数面积的分布，标出 A0 及其 2、3 倍。"""
+    from src import plotstyle as ps
+    pre = preprocess.preprocess(image_bgr)
+    calib = pre["calib"]
+    areas = np.array([c["area"] for c in calib["components"]
+                      if c["area"] >= calibrate.NOISE_FLOOR_PX])
+    _, debug = calibrate.estimate_single_area(areas)
+    if debug is None:
+        return None
+
+    fig, ax = _data_fig(2.35)
+    base = ps.SERIES["B1_components"]["color"]
+    ax.hist(np.log(areas), bins=40, density=True, facecolor=ps.light(base, 0.7),
+            edgecolor=base, linewidth=0.5, label="面积直方图")
+    ax.plot(debug["grid"], debug["density"], color=base, lw=1.6, label="核密度估计")
+    ps.headroom(ax, 0.28)
+    top = ax.get_ylim()[1]
+    for k in (1, 2, 3):
+        x = np.log(k * calib["a0"])
+        colour = ps.SERIES["ours"]["color"] if k == 1 else "#7F7F7F"
+        # 竖线只画到标注带下方，不穿过顶部的文字
+        ax.vlines(x, 0, top * 0.80, colors=colour, linestyles="-" if k == 1 else ":",
+                  lw=1.4 if k == 1 else 1.1)
+        text = f"$A_0$ = {calib['a0']:.0f} px" if k == 1 else f"{k}$A_0$"
+        ax.annotate(text, (x, top * 0.82), ha="center", va="bottom", color=colour,
+                    fontsize=8)
+    ax.set_xlabel("连通域面积的对数 ln S")
+    ax.set_ylabel("概率密度")
+    ax.grid(axis="x", visible=False)
+    fig.legend(loc="outside upper center", ncol=2)
+    return _save_data_fig(fig, out_name)
+
+
+def _touching_table():
+    per_image = pd.read_csv(METRICS_ROOT / "per_image.csv")
+    d2 = per_image[(per_image.dataset == "d2") & per_image.touch_prob.notna()].copy()
+    d2["abs_err"] = d2["error"].abs()
+    return d2.groupby(["touch_prob", "method"])["abs_err"].mean().unstack()
+
+
+def error_curve_figure(out_name="error_vs_touching.pdf"):
+    """各方法的误差随粘连率的变化。只给本文方法标数值，六条线全标会挤成一团。"""
+    from src import plotstyle as ps
+    table = _touching_table()
+    order = ["B1_components", "B4_erosion_watershed", "B5_concave_ellipse",
+             "B3_dist_watershed", "B2_area", "Ours_ASW_SPC"]
+    fig, ax = _data_fig(2.9)
+    x = table.index * 100
+    for method in order:
+        if method not in table:
+            continue
+        extra = dict(lw=2.0, zorder=5, markersize=5.5) if method == "Ours_ASW_SPC" else {}
+        if method == "B4_erosion_watershed":
+            # B4 在这组数据上与 B1 逐档相同，换细线与实心标记，两条线叠着也都看得见
+            extra = dict(lw=1.0, markerfacecolor=ps.SERIES[method]["color"], markersize=3.5)
+        ax.plot(x, table[method], **ps.line_style(method, **extra))
+    ours = table["Ours_ASW_SPC"]
+    ps.label_points(ax, x, ours, fmt="{:.2f}", dy=-5, fontsize=7,
+                    color=ps.SERIES["ours"]["color"])
+    ax.set_ylim(-4.5, None)
+    ps.headroom(ax, 0.04)
+    ax.set_xticks(x)
+    ax.set_xlabel("粘连率／%")
+    ax.set_ylabel("平均绝对误差／粒 ↓")
+    # 图例按 B1 到 B5、本文方法的顺序逐行读；fig.legend 按列填，所以先把次序换好
+    handles, labels = ax.get_legend_handles_labels()
+    wanted = [ps.SERIES[m]["label"] for m in
+              ("B1_components", "B4_erosion_watershed", "B2_area", "B5_concave_ellipse",
+               "B3_dist_watershed", "Ours_ASW_SPC")]
+    pairs = sorted(zip(handles, labels), key=lambda hl: wanted.index(hl[1]))
+    fig.legend(*zip(*pairs), loc="outside upper center", ncol=3)
+    return _save_data_fig(fig, out_name)
+
+
+def scatter_figure(out_name="pred_vs_true.pdf", datasets=("d1", "d2", "d3")):
+    """本文方法逐张的预测值与真值，虚线为两者相等。"""
+    from src import plotstyle as ps
+    per_image = pd.read_csv(METRICS_ROOT / "per_image.csv")
+    ours = per_image[per_image.method == "Ours_ASW_SPC"]
+    style = ps.SERIES["ours"]
+
+    fig, axes = _data_fig(2.25, ncols=len(datasets))
+    for ax, name in zip(np.atleast_1d(axes), datasets):
+        block = ours[ours.dataset == name]
+        truth, pred = block["gt"], block["pred"]
+        lo = min(truth.min(), pred.min()) * 0.9
+        hi = max(truth.max(), pred.max()) * 1.08
+        ax.plot([lo, hi], [lo, hi], color="#7F7F7F", ls="--", lw=0.8, label="_y=x")
+        ax.scatter(truth, pred, s=11, marker=style["marker"], facecolors="none",
+                   edgecolors=style["color"], linewidths=0.8)
+        ax.set_xlim(lo, hi)
+        ax.set_ylim(lo, hi)
+        ax.set_aspect("equal")
+        ax.xaxis.set_major_locator(matplotlib.ticker.MaxNLocator(4))
+        ax.yaxis.set_major_locator(matplotlib.ticker.MaxNLocator(4, prune="lower"))
+        ax.set_xlabel("真值／粒")
+        ax.set_title(f"{dataset_label(name)}  MAE {block['error'].abs().mean():.2f}")
+    np.atleast_1d(axes)[0].set_ylabel("预测值／粒")
+    fig.get_layout_engine().set(wspace=0.06)
+    return _save_data_fig(fig, out_name)
+
+
+def _abstract_curve(ax):
+    """误差随粘连率的变化。只留两条线，首页要的是对比清楚。"""
+    from src import plotstyle as ps
+    curve = _touching_table()
+    x = curve.index * 100
+    for method, key in (("B1_components", "b1"), ("Ours_ASW_SPC", "ours")):
+        if method in curve:
+            extra = dict(lw=1.8, markersize=5) if key == "ours" else {}
+            ax.plot(x, curve[method], **ps.line_style(key, **extra))
+            if key == "b1":
+                # 粘连率为 0 时两种做法数值相同，只在方法一那条线上标一次
+                for xi, yi in list(zip(x, curve[method]))[1:]:
+                    ax.annotate(f"{yi:.1f}", (xi, yi), xytext=(-4, 3),
+                                textcoords="offset points", ha="right", va="bottom",
+                                fontsize=6.5, color=ps.SERIES[key]["color"])
+            else:
+                ps.label_points(ax, x, curve[method], fmt="{:.1f}", dy=-5, fontsize=6.5,
+                                color=ps.SERIES[key]["color"])
+    ax.set_ylim(-6, None)
+    ps.headroom(ax, 0.12)
+    ax.set_xticks(x)
+    ax.set_xlabel("粘连率／%")
+    ax.set_ylabel("平均绝对误差／粒 ↓")
+    ax.set_title("误差随粘连程度的变化")
+    ax.legend(loc="upper left", frameon=True, facecolor="white", edgecolor=GRID,
+              framealpha=1)
+
+
+def _abstract_bars(ax):
+    """四种做法在同一批测试图上的误差。
+
+    同一批是关键：学生模型只在留出集上测过，把它的数字与另外几种在全集上的
+    数字并排，比较就不成立了，所以这里四者用的都是那 162 张测试图。
+    """
+    from src import plotstyle as ps
+    table = pd.read_csv(METRICS_ROOT / "student_test.csv")
+    keys = [k for k in ("b1", "ours", "student", "sam3") if k in table.columns]
+    datasets = [d for d in ("d1", "d2", "d3") if (table.dataset == d).any()]
+    width = 0.8 / len(keys)
+    for index, key in enumerate(keys):
+        values = [float((table[table.dataset == d][key]
+                         - table[table.dataset == d].truth).abs().mean()) for d in datasets]
+        xs = [i - 0.4 + width * (index + 0.5) for i in range(len(datasets))]
+        ax.bar(xs, values, width * 0.9, **ps.bar_style(key))
+        ps.label_points(ax, xs, values, fmt="{:.1f}", bold=True, fontsize=6)
+    ps.headroom(ax, 0.10)
+    ax.set_xticks(range(len(datasets)))
+    ax.set_xticklabels([DATASET_CN[d] for d in datasets])
+    ax.set_ylabel("平均绝对误差／粒 ↓")
+    ax.set_title("四种做法在同一批测试图上的误差")
+    ax.grid(axis="x", visible=False)
+    ax.legend(loc="upper right", ncol=1, frameon=True, facecolor="white",
+              edgecolor=GRID, framealpha=1, fontsize=7, handlelength=1.6)
+
+
+def student_bars_figure(out_name="student_bars.pdf"):
+    """把图文摘要里的柱状图单独出一张，供仓库的 README 使用。"""
+    fig, ax = _data_fig(2.6)
+    _abstract_bars(ax)
+    return _save_data_fig(fig, out_name)
+
+
+def abstract_figure(out_name="graphical_abstract.pdf"):
+    """首页图文摘要：上排两个场景的逐粒结果，下排两幅定量图。
+
+    题目问的是"数出多少粒"和"解决连体计数不准"，这几幅各答一问：
+    上排说明程序把哪些区域算作了几粒，左下说明粘连加重时误差并未跟着涨，
+    右下把四种做法放在同一批图上比较。
+    """
+    from src import counter, plotstyle as ps, render, synth
+
+    real = io_utils.load_d1()[0]
+    dense = max(synth.load_d2(), key=lambda s: s.get("touch_prob") or 0)
+
+    old = ps.apply()
+    fig = plt.figure(figsize=(ps.TEXT_WIDTH_IN, 5.5))
+    fig._rc_before = old
+    grid = fig.add_gridspec(2, 2, height_ratios=[1.15, 1])
+    for column, (sample, label) in enumerate((
+            (real, "真实照片"),
+            (dense, f"合成图，粘连率 {int((dense.get('touch_prob') or 0) * 100)}%"))):
+        image = io_utils.imread(sample["path"])
+        labels, info, total, _ = counter.label_image(image)
+        drawn = render.draw(image, labels, info, banner_lines=None)
+        ax = fig.add_subplot(grid[0, column])
+        _show(ax, cv2.cvtColor(drawn, cv2.COLOR_BGR2RGB),
+              f"{label}，数出 {total} 粒，真值 {sample['gt_count']} 粒",
+              fontsize=plt.rcParams["axes.titlesize"])
+    _abstract_curve(fig.add_subplot(grid[1, 0]))
+    _abstract_bars(fig.add_subplot(grid[1, 1]))
+    return _save_data_fig(fig, out_name)
+
+
+def seed_depth_figure(out_name="seed_depth.pdf"):
+    """3.5 用图：一粒内部是浅坑、两粒之间是深谷，所以该看深度而不是距离。"""
+    from src import plotstyle as ps, synth
+    sample = max(synth.load_d2(), key=lambda s: s.get("touch_prob") or 0)
+    image = io_utils.imread(sample["path"])
+    pre = preprocess.preprocess(image)
+    calib = pre["calib"]
+
+    # 挑一个确实被切成两半的粘连块，只出一个种子的块说明不了"深谷"这件事
+    h = segment.BETA * calib["minor0"] / 2.0
+    chosen = None
+    for component in sorted((c for c in calib["components"]
+                             if 1.6 * calib["a0"] <= c["area"] <= 3.2 * calib["a0"]),
+                            key=lambda c: c["solidity"]):
+        piece = (calib["labels"] == component["label"]).astype(np.uint8)
+        sub, _ = _crop_around(piece, component["bbox"], pad_ratio=0.25)
+        dist = cv2.distanceTransform(sub, cv2.DIST_L2, 5)
+        markers = segment.adaptive_markers(dist, calib["minor0"])
+        if int(markers.max()) >= 2:
+            chosen = (sub, dist, markers)
+            break
+    if chosen is None:
+        return None
+    sub, dist, markers = chosen
+
+    centres = [tuple(np.mean(np.nonzero(markers == i), axis=1))
+               for i in range(1, int(markers.max()) + 1)]
+    peaks = sorted(centres, key=lambda rc: -dist[int(rc[0]), int(rc[1])])[:2]
+    (r0, c0), (r1, c1) = peaks
+    steps = int(max(abs(r1 - r0), abs(c1 - c0))) + 1
+    rows = np.linspace(r0, r1, steps).astype(int)
+    cols = np.linspace(c0, c1, steps).astype(int)
+    profile = dist[rows, cols]
+
+    fig, axes = _data_fig(2.45, ncols=2, gridspec_kw={"width_ratios": [1, 1.7]})
+    seed_colour = ps.SERIES["B1_components"]["color"]
+    axes[0].imshow(dist, cmap="magma")
+    axes[0].plot([c0, c1], [r0, r1], color="#56B4E9", lw=1.2, ls="--", label="_cut")
+    axes[0].scatter([c0, c1], [r0, r1], s=16, color="#56B4E9")
+    axes[0].set_title("粘连块的距离变换，虚线为剖面位置")
+    axes[0].axis("off")
+
+    ax = axes[1]
+    xs = np.arange(len(profile))
+    ax.plot(xs, profile, **ps.line_style("ours", marker=None, label="沿虚线的剖面"))
+    ax.hlines(h, xs[0], xs[-1], colors=seed_colour, linestyles="--", lw=1.1,
+              label=f"深度门限 h = {h:.1f}")
+    valley = int(np.argmin(profile[len(profile) // 5: -len(profile) // 5]) + len(profile) // 5)
+    left, right = int(np.argmax(profile[:valley])), valley + int(np.argmax(profile[valley:]))
+    # 谷底的数值标在点下方，标在上方会落进 V 形谷的两壁之间
+    for index, dy, va in ((left, 4, "bottom"), (right, 4, "bottom"), (valley, -4, "top")):
+        ax.annotate(f"{profile[index]:.1f}", (xs[index], profile[index]), xytext=(0, dy),
+                    textcoords="offset points", ha="center", va=va, fontsize=7, color=INK)
+        ax.plot(xs[index], profile[index], marker="o", ms=3.5, color=ps.SERIES["ours"]["color"],
+                label="_pt")
+    ax.set_ylim(-3.5, None)
+    ps.headroom(ax, 0.22)
+    ax.set_xlabel("自一个种子到另一个种子的位置／像素")
+    ax.set_ylabel("到背景的距离／像素")
+    ax.set_title("两粒之间是一道深谷")
+    ax.legend(loc="upper center", ncol=2, frameon=True, facecolor="white", edgecolor=GRID,
+              framealpha=1)
+    return _save_data_fig(fig, out_name)
+
+
 def main():
     from src import synth
 
@@ -1311,7 +1324,7 @@ def main():
         pipeline_figure(io_utils.imread(dense["path"]), "pipeline_synthetic.png"),
         pipeline_figure(io_utils.imread(d1[0]["path"]), "pipeline_real.png"),
         cluster_detail_figure(io_utils.imread(dense["path"]), "cluster_detail.png"),
-        calibration_figure(io_utils.imread(mixed["path"]), "calibration.png"),
+        calibration_figure(io_utils.imread(mixed["path"])),
         error_curve_figure(),
         scatter_figure(),
         student_bars_figure(),

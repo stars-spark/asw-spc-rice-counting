@@ -16,6 +16,8 @@
 \usepackage{titlesec}
 \usepackage{fancyhdr}
 \usepackage[hidelinks]{hyperref}
+% 长网址允许在任意字符处断行，否则附录里的仓库地址会伸出版心
+\usepackage{xurl}
 
 \setCJKmainfont{FZShuSong-Z01}[BoldFont=FZHei-B01, ItalicFont=FZKai-Z03]
 \setCJKsansfont{FZHei-B01}
@@ -126,7 +128,7 @@
 % 首页图文摘要：题目问"数出多少粒"与"解决连体计数不准"，这两幅各答一问。
 \begin{figure}[H]
   \centering
-  \includegraphics[width=\textwidth]{graphical_abstract.png}
+  \includegraphics[width=\textwidth]{graphical_abstract.pdf}
   \caption{上排为方法一在真实照片与重度粘连合成图上的逐粒计数结果；
   下排左为计数误差随粘连率的变化，右为四种做法在同一批测试图上的平均绝对误差。}
   \label{fig:abstract}
