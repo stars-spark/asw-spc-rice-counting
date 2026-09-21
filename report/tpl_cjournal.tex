@@ -112,20 +112,32 @@
 \end{center}
 \vspace{1.5ex}
 
-% 摘要与关键词按中文期刊惯例：小五号、左右缩进，标签用黑体，内容接排不分段。
+% 摘要与关键词按学位论文与期刊的通行排法：上下各一条细线把它与正文隔开，
+% 「摘要」二字居中作小标题，正文小五号、每段首行缩进两字，关键词另起一行。
+% 左右各收进 2 个字，版心宽度变窄，读起来与正文有所区别。
+\newlength{\absindent}
 \begingroup
 \zihao{-5}
-\leftskip=2em \rightskip=2em
-% 摘要分段后，每段开头缩进两个字；\ccwd 是当前字号下一个汉字的宽度。
-% 第一段紧跟在「摘要」标签后面，标签本身就是段首，所以不再缩进。
-\parindent=2\ccwd
-\noindent{\sffamily 摘\quad 要：}\input{abstract.tex}
-
+% 收进量取整数个小五号字宽，行宽恰为整数个汉字，行末不易留下零星一两个字
+\setlength{\absindent}{2\ccwd}
+\setlength{\parskip}{0pt}
+\noindent\hspace*{\absindent}\rule{\dimexpr\linewidth-2\absindent\relax}{0.6pt}\par
+\vspace{0.8ex}
+{\centering\sffamily\zihao{5}摘\quad 要\par}
 \vspace{0.6ex}
-\noindent{\sffamily 关键词：}\input{keywords.tex}
-\par
+\leftskip=\absindent \rightskip=\absindent
+\parindent=2\ccwd
+\input{abstract.tex}\par
+\vspace{0.8ex}
+% 关键词较多换行时，第二行与第一个关键词对齐
+\setbox0=\hbox{\sffamily 关键词：}%
+\hangindent=\wd0 \hangafter=1
+\noindent{\sffamily 关键词：}\input{keywords.tex}\par
+\vspace{0.8ex}
+\leftskip=0pt \rightskip=0pt
+\noindent\hspace*{\absindent}\rule{\dimexpr\linewidth-2\absindent\relax}{0.4pt}\par
 \endgroup
-\vspace{2.5ex}
+\vspace{2ex}
 
 % 首页图文摘要：题目问"数出多少粒"与"解决连体计数不准"，这两幅各答一问。
 \begin{figure}[H]
