@@ -915,7 +915,7 @@ def b3_seed_figure(out_name="b3_seeds.png"):
     return FIG_ROOT / out_name
 
 
-def terrain_figure(out_name="terrain_3d.png", elev=38, azim=-58, z_exaggeration=1.25):
+def terrain_figure(out_name="terrain_3d.png", elev=32, azim=-58, z_exaggeration=0.9):
     """把距离变换当成地形来看。
 
     注水分割真正淹没的曲面是距离变换的负值。米粒内部离背景远，取负之后陷成一个盆地；
@@ -1013,24 +1013,34 @@ def _render_terrain(dist, mask, merged, markers, elev, azim, z_exaggeration, siz
     ax.view_init(elev=elev, azim=azim)
     ax.set_box_aspect((dist.shape[1], dist.shape[0], z_exaggeration * max(dist.shape)))
     ax.set_zlim(-depth * 1.12, depth * 0.10)
-    ax.set_xticks([])
-    ax.set_yticks([])
+    # 画出三条坐标轴与三个参考面，读者能看出地形的尺度：平面方向是像素位置，
+    # 竖直方向是离背景的距离，米粒最深处约比地面低 {depth} 个像素
+    step = 20 if max(dist.shape) > 60 else 10
+    ax.set_xticks(np.arange(0, dist.shape[1], step))
+    ax.set_yticks(np.arange(0, dist.shape[0], step))
     ax.set_zticks([0, -round(depth / 2), -round(depth)])
-    ax.tick_params(axis="z", pad=-1, labelsize=7.5 * FONT_SCALE, colors=INK)
-    ax.set_zlabel("深度 / 像素", labelpad=4, fontsize=8 * FONT_SCALE)
+    ax.tick_params(axis="both", pad=0, labelsize=6.5 * FONT_SCALE, colors=INK)
+    ax.set_xlabel("x / 像素", labelpad=2, fontsize=7.5 * FONT_SCALE)
+    ax.set_ylabel("y / 像素", labelpad=2, fontsize=7.5 * FONT_SCALE)
+    ax.set_zlabel("深度 / 像素", labelpad=2, fontsize=7.5 * FONT_SCALE)
     for axis in (ax.xaxis, ax.yaxis, ax.zaxis):
-        axis.pane.set_visible(False)
-        axis.line.set_color((1, 1, 1, 0))
-    ax.grid(False)
+        axis.pane.set_facecolor((0.95, 0.95, 0.95, 1.0))
+        axis.pane.set_edgecolor(GRID)
+        axis.line.set_color(INK)
+        axis._axinfo["grid"].update(color=GRID, linewidth=0.5)
+    ax.grid(True)
     handles = [Line2D([], [], color=SERIES_COLORS["sam3"], lw=1.2, marker="o", markersize=4,
                       label="种子"),
                Line2D([], [], color=SERIES_COLORS["baseline"], lw=0, marker="o", markersize=3,
                       label="切分线")]
-    ax.legend(handles=handles, loc="lower left", frameon=False,
-              fontsize=7.5 * FONT_SCALE, handlelength=1.2, borderaxespad=0.2)
+    # 图例横排放在三维框的正上方，不压住地形
+    ax.legend(handles=handles, loc="lower center", bbox_to_anchor=(0.5, 0.93), ncol=2,
+              frameon=False, fontsize=7.5 * FONT_SCALE, handlelength=1.2,
+              columnspacing=1.2, borderaxespad=0)
 
     buffer = io.BytesIO()
-    fig.savefig(buffer, dpi=DPI, format="png")
+    # 坐标轴标签会伸出画布，按实际内容裁切而不是按画布
+    fig.savefig(buffer, dpi=DPI, format="png", bbox_inches="tight", pad_inches=0.04)
     plt.close(fig)
     buffer.seek(0)
     image = np.asarray(Image.open(buffer).convert("RGB"))
