@@ -163,13 +163,11 @@ def pipeline_figure(image_bgr, out_name="pipeline.png"):
         r0, c0, r1, c1 = cluster["bbox"]
         seeds[r0:r1, c0:c1] = np.maximum(seeds[r0:r1, c0:c1], cluster["markers"])
 
-    result = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB).copy()
-    for component in calib["components"]:
-        if component["area"] < counter.SPECK_RATIO * calib["a0"]:
-            continue
-        colour = (255, 60, 60) if segment.is_foreign_object(component, calib) else (60, 255, 60)
-        outline = find_boundaries(calib["labels"] == component["label"], mode="outer")
-        result[outline] = colour
+    # 最后一格与其它效果图同一种画法，每粒米涂一种颜色，切开的粘连块也分成几种颜色
+    from src import render
+    labels, info, _, _ = counter.label_image(image_bgr, pre=pre)
+    result = cv2.cvtColor(render.draw(image_bgr, labels, info, banner_lines=None),
+                          cv2.COLOR_BGR2RGB)
 
     fig, axes = plt.subplots(2, 4, figsize=(9.5, 5.2))
     _show(axes[0, 0], cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB), "(a) 输入图像")

@@ -1,8 +1,9 @@
 """Render per-image counting results for visual checking.
 
-Each counted instance is drawn as an outline only, never filled, so the grain underneath
-stays visible. Nearby instances are given different colours by greedy graph colouring so
-that a boundary between two touching grains is unambiguous. Where the method attributed
+Each counted instance is filled with a translucent colour and outlined in the same colour,
+so one grain reads as one coloured blob while its texture still shows through. Nearby
+instances are given different colours by greedy graph colouring so that a boundary
+between two touching grains is unambiguous. Where the method attributed
 several grains to one region by area rather than by an actual cut, the region is marked
 with a dashed box and a multiplier, so the region count and the reported count can be
 reconciled by eye.
@@ -18,11 +19,14 @@ from src.io_utils import RESULTS_ROOT, ensure_dir
 
 RENDER_ROOT = RESULTS_ROOT / "renders"
 
-# Bright, mutually distinct, readable on both dark and light backgrounds.
+# Bright, mutually distinct, readable on both dark and light backgrounds (BGR order).
+# Ten hues rather than eight, so a dense cluster does not fall back to repeating colours.
 PALETTE = [
     (66, 220, 66), (255, 96, 96), (80, 160, 255), (255, 220, 60),
     (255, 120, 255), (60, 235, 235), (255, 160, 40), (170, 130, 255),
+    (40, 90, 255), (150, 255, 150),
 ]
+FILL_ALPHA = 0.6
 FOREIGN_COLOUR = (190, 190, 190)
 
 
@@ -44,17 +48,25 @@ def neighbour_graph(regions, reach=2.2):
 
 
 def greedy_colours(graph, n_colours=len(PALETTE)):
-    """Assign each instance a colour different from its neighbours (Welsh-Powell order)."""
+    """Assign each instance a colour different from its neighbours (Welsh-Powell order).
+
+    Each node starts its search at a different colour. Always starting from the first one
+    would paint every isolated grain the same colour, and a scene of mostly separate grains
+    would come out almost uniformly green; rotating the start spreads the palette evenly
+    while neighbours still never share a colour.
+    """
     order = sorted(graph, key=lambda k: -len(graph[k]))
     assigned = {}
     for node in order:
         taken = {assigned[n] for n in graph[node] if n in assigned}
-        for colour in range(n_colours):
+        start = (node * 7) % n_colours
+        for step in range(n_colours):
+            colour = (start + step) % n_colours
             if colour not in taken:
                 assigned[node] = colour
                 break
         else:
-            assigned[node] = 0
+            assigned[node] = start
     return assigned
 
 
@@ -102,6 +114,14 @@ def draw(image_bgr, labels, info, banner_lines, thickness=1):
 
     colours = greedy_colours(neighbour_graph(regions))
 
+    # 先把每粒米整块涂色，再统一与原图混合，颜色深浅在整张图上一致。
+    # 异物不涂色，只勾灰色轮廓，一眼能看出它没有被计数。
+    fill = canvas.copy()
+    for index, region in enumerate(regions):
+        if region["kind"] != "foreign":
+            fill[labels == region["label"]] = PALETTE[colours.get(index, 0)]
+    canvas = cv2.addWeighted(fill, FILL_ALPHA, canvas, 1 - FILL_ALPHA, 0)
+
     for index, region in enumerate(regions):
         mask = (labels == region["label"]).astype(np.uint8)
         colour = (FOREIGN_COLOUR if region["kind"] == "foreign"
@@ -109,9 +129,6 @@ def draw(image_bgr, labels, info, banner_lines, thickness=1):
 
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         cv2.drawContours(canvas, contours, -1, colour, thickness, cv2.LINE_AA)
-
-        cy, cx = region["centroid"]
-        cv2.circle(canvas, (int(round(cx)), int(round(cy))), 1, colour, -1, cv2.LINE_AA)
 
         if region["kind"] == "foreign":
             r0, c0, r1, c1 = region["bbox"]
