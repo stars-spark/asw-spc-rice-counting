@@ -310,8 +310,8 @@ def b5_matrix_table():
 
 
 AXIS_LABELS = {
-    "blur": ("高斯模糊", r"$\sigma$", "{:.2f}$\\,b_0$"),
-    "noise": ("加性噪声", r"$\sigma$", "{:.0f}"),
+    "blur": ("模糊", r"$\sigma$", "{:.2f}$\\,b_0$"),
+    "noise": ("加噪声", r"$\sigma$", "{:.0f}"),
     "contrast": ("对比度保留", "", r"{:.0f}\%"),
     "resolution": ("降采样倍率", "", r"{:.1f}$\times$"),
 }

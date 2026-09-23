@@ -1447,11 +1447,50 @@ def main():
         student_pipeline_figure(),
         student_vs_geometric_figure(),
         terrain_figure(),
+        abstract_figure(),
+        b3_seed_figure(),
+        touching_criterion_figure(),
+        touching_problem_figure(),
+        binarisation_failure_figure(),
+        scope_failure_figure(),
+        seed_depth_figure(),
     ]
     for path in outputs:
         if path:
             print(f"wrote {path}")
 
 
+# The appendix does not take every set's scenes evenly: the first evenly taken D1 and D3
+# scenes are already the main-text figures, so these are the ones the report shows instead.
+APPENDIX_SCENES = {
+    "d1": ["IMG_5958", "IMG20240925164317"],
+    "d2": None,
+    "d3": ["WIN_20240129_10_14_26_Pro", "WIN_20240202_12_55_40_Pro"],
+}
+
+
+def sam3_figures():
+    """The figures that run SAM 3 itself: one scene per set, and the appendix scenes."""
+    from src.teacher_sam import Sam3Teacher
+
+    for path in render_comparison_figure():
+        print(f"wrote {path}", flush=True)
+    teacher = Sam3Teacher()
+    for dataset, files in APPENDIX_SCENES.items():
+        for path in appendix_renders_figure(dataset, teacher=teacher, files=files):
+            print(f"wrote {path}", flush=True)
+
+
 if __name__ == "__main__":
+    import argparse
+    import os
+
+    parser = argparse.ArgumentParser(description="Regenerate the report figures")
+    parser.add_argument("--sam3", action="store_true",
+                        help="only the figures that run SAM 3 (needs its weights and a GPU)")
+    args = parser.parse_args()
+    if args.sam3:
+        sam3_figures()
+        # Leave without interpreter shutdown, so no stray thread keeps the GPU memory.
+        os._exit(0)
     main()

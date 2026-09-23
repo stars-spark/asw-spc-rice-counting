@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := report
 
-.PHONY: data synth core tables figures report clean-report
+.PHONY: data synth core tables figures figures-sam3 report clean-report
 
 # 解压版本化的原始数据。解压结果被 .gitignore 排除，可随时删除后重建。
 data:
@@ -26,6 +26,10 @@ tables:
 # 依赖版本化的学生模型检查点和教师伪标签，不要求下载 SAM 3 权重。
 figures: synth
 	python -m src.visualize
+
+# 运行 SAM 3 本身的对比图与附录图，需要已下载的 SAM 3 权重和 GPU。
+figures-sam3: synth
+	python -m src.visualize --sam3
 
 # 报告所需图、指标和表格均被版本化，克隆后可直接执行此目标。
 report:
