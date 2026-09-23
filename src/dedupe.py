@@ -1,10 +1,8 @@
-"""Check the candidate touching sets against D1 and against themselves.
+"""检查候选的粘连数据集与 D1 之间、以及集内部有没有重复图片。
 
-Two datasets exported from the same source would make a comparison self-confirming, and
-Roboflow exports routinely contain flip- and crop-augmented copies of one photograph. Both
-are found here by perceptual hash: images are reduced to a small grey thumbnail and encoded
-by whether each pixel is above the thumbnail's median, which survives rescaling and JPEG
-recompression but still separates genuinely different scenes.
+同一来源导出的两个数据集互相比较会自证，Roboflow 导出包也常含同一张照片翻转、裁剪后的副本。
+这里用感知哈希找重复，把图缩成小灰度图，按各像素是否高于中位数编码，
+缩放和 JPEG 重压缩后不变，不同场景仍能分开。
 """
 import argparse
 from collections import defaultdict
@@ -30,7 +28,7 @@ def hamming(a, b):
 
 
 def fingerprint(samples):
-    """Hashes for one dataset, keeping both orientations so flips still match."""
+    """一个数据集的哈希，正反两个方向都存，翻转后也能匹配。"""
     rows = []
     for sample in samples:
         bits = phash(sample["path"])
@@ -41,7 +39,7 @@ def fingerprint(samples):
 
 
 def cross_duplicates(left, right, limit=NEAR_DUPLICATE_BITS):
-    """Pairs across two datasets that are the same photograph."""
+    """两个数据集之间是同一张照片的图片对。"""
     hits = []
     for a in left:
         for b in right:
@@ -53,7 +51,7 @@ def cross_duplicates(left, right, limit=NEAR_DUPLICATE_BITS):
 
 
 def self_duplicates(rows, limit=NEAR_DUPLICATE_BITS):
-    """Groups of images within one dataset that are the same photograph."""
+    """一个数据集内部是同一张照片的图片组。"""
     groups = defaultdict(list)
     assigned = {}
     for index, a in enumerate(rows):

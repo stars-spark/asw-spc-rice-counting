@@ -6,34 +6,23 @@ from scipy.stats import gaussian_kde
 from skimage.measure import label, regionprops
 
 NOISE_FLOOR_PX = 5
-# Hulls are measured from this fraction of A0 upwards. It matches the speck threshold the
-# counter skips below, so every component any later rule can examine carries a real
-# solidity - including the ablation variants that test it with an "or" and therefore reach
-# components smaller than the single band.
+# 从 A0 的这个比例起才算凸包，与计数时的碎屑门限一致，
+# 后面任何规则会看的连通域都有凸实度，包括消融里用"或"条件的变体。
 SHAPE_FLOOR_RATIO = 0.3
 SINGLE_BAND = (0.65, 1.45)
 AREA_MODE = "dominant"
 
 
 def component_table(mask, shape_from=None, shape_sample=None, defer_solidity=False):
-    """Per-component measurements for one binary mask.
+    """一张二值图里每个连通域的测量值。
 
-    Everything except solidity is obtained for all components in a single scan: connected
-    components and the distance transform are OpenCV calls, the per-region distance maxima
-    are one labelled reduction, and the axis lengths come from second-order moments
-    accumulated with `bincount` (identical to `regionprops` to within floating point).
-
-    Solidity is the only measurement needing a convex hull, and hulls are what made the old
-    per-component loop expensive: a saturation-channel candidate holds tens of thousands of
-    speck blobs. They are therefore computed only for components of at least `shape_from`,
-    which is safe because nothing consults solidity below it - the single band starts at
-    0.65*A0 and the touching, foreign-object and area-accounting rules all test a larger
-    area first. Components without a hull come back with solidity NaN.
-
-    That threshold depends on A0, which is estimated from the areas this function returns.
-    With `defer_solidity` the hulls are left unmeasured and a third value is returned: a
-    function that fills them in for a given threshold, so the caller can estimate A0 first
-    without scanning the mask twice.
+    除凸实度外都在一遍扫描里算完。连通域和距离变换用 OpenCV，
+    长短轴用二阶矩加 bincount 累加，与 regionprops 的结果只差浮点误差。
+    凸实度要算凸包，饱和度通道的候选常有上万个噪点，逐个算很慢，
+    所以只给面积不小于 shape_from 的连通域算，其余记为 NaN。
+    后面用到凸实度的规则都先要求更大的面积，不会读到 NaN。
+    defer_solidity=True 时先不算凸包，多返回一个 fill_solidity 函数，
+    调用方可以先估出 A0 再补算，不用把掩膜扫两遍。
     """
     binary = (mask > 0).astype(np.uint8)
     count, labels, stats, _ = cv2.connectedComponentsWithStats(binary, connectivity=8)
@@ -42,18 +31,17 @@ def component_table(mask, shape_from=None, shape_sample=None, defer_solidity=Fal
 
     index = np.arange(1, count)
     areas = stats[index, cv2.CC_STAT_AREA].astype(np.float64)
-    # (min_row, min_col, max_row, max_col), matching regionprops' bbox convention
+    # (min_row, min_col, max_row, max_col)，与 regionprops 的 bbox 一致
     boxes = np.stack([stats[index, cv2.CC_STAT_TOP], stats[index, cv2.CC_STAT_LEFT],
                       stats[index, cv2.CC_STAT_TOP] + stats[index, cv2.CC_STAT_HEIGHT],
                       stats[index, cv2.CC_STAT_LEFT] + stats[index, cv2.CC_STAT_WIDTH]], axis=1)
 
-    # Twice the largest inscribed-disc radius: the width of the region at its thickest
-    # point. Components are separated by background, so one distance transform over the
-    # whole mask gives the same per-region maxima as transforming each region alone.
+    # 宽度 = 最大内切圆半径的两倍。各连通域之间隔着背景，
+    # 对整张掩膜做一次距离变换，与逐个区域单独做结果相同。
     dist = cv2.distanceTransform(binary, cv2.DIST_L2, 5)
     widths = 2.0 * np.asarray(ndi.maximum(dist, labels, index=index), dtype=np.float64).ravel()
 
-    # Axis lengths from the second-order central moments of each label.
+    # 由各标号的二阶中心矩求长短轴。
     rows_idx, cols_idx = np.nonzero(labels)
     flat = labels[rows_idx, cols_idx]
     n_px = np.bincount(flat, minlength=count).astype(np.float64)[1:]
@@ -85,17 +73,16 @@ def component_table(mask, shape_from=None, shape_sample=None, defer_solidity=Fal
     ]
 
     def fill_solidity(threshold=None, sample=None):
-        """Measure convex hulls for the components at or above `threshold`."""
+        """给面积不小于 threshold 的连通域算凸包和凸实度。"""
         wanted = np.ones(areas.shape, bool) if threshold is None else areas >= threshold
         chosen = index[wanted]
         if sample is not None and chosen.size > sample:
-            # Evenly spaced in area order: a deterministic sample of the same population.
+            # 按面积排序后等间隔抽样，结果是确定的。
             order = chosen[np.argsort(areas[wanted], kind="stable")]
             chosen = np.sort(order[np.linspace(0, order.size - 1, sample).astype(int)])
         if not chosen.size:
             return
-        # Relabel the chosen components 1..k before measuring: regionprops walks the whole
-        # label range, so leaving gaps would make it visit every empty label in between.
+        # 先把选中的连通域重新编号为 1..k，regionprops 会遍历整个标号范围，有空号会白跑很多次。
         lut = np.zeros(count, dtype=np.int32)
         lut[chosen] = np.arange(1, chosen.size + 1)
         for region in regionprops(lut[labels]):
@@ -108,15 +95,11 @@ def component_table(mask, shape_from=None, shape_sample=None, defer_solidity=Fal
 
 
 def estimate_single_area(areas, grid_size=512, mode=None):
-    """Single-grain area A0 from the mode of the area distribution in log space.
+    """由对数面积分布的众数估计单粒面积 A0。
 
-    Log space is used because touching clusters pile up near 2*A0, 3*A0 ..., which are
-    evenly spaced there, and because the kernel width then scales with the grain size
-    instead of being a fixed pixel count.
-
-    "dominant" takes the tallest mode: single grains are the most repeated object in the
-    scene. "lowest" takes the lowest prominent mode, which is only safe when the image is
-    free of debris, since fragments would be mistaken for grains.
+    用对数是因为粘连块堆在 2A0、3A0 附近，取对数后间距相等，核宽也随米粒大小缩放。
+    "dominant" 取最高的峰，单粒是画面里重复最多的东西。
+    "lowest" 取最低的显著峰，只适合没有碎屑的图，否则碎屑会被当成单粒。
     """
     mode = AREA_MODE if mode is None else mode
     areas = np.asarray([a for a in areas if a >= NOISE_FLOOR_PX], dtype=np.float64)
@@ -145,15 +128,12 @@ def estimate_single_area(areas, grid_size=512, mode=None):
 
 
 def calibrate(mask, mode=None, need_solidity=True):
-    """Estimate the single-grain scale and shape priors from the image itself.
+    """从图像本身估计单粒尺度和形状先验。
 
-    With `need_solidity=False` the convex hulls are skipped entirely: solidity comes back
-    NaN for every component and so does `solidity0`. Everything the candidate score is made
-    of - the number of single-sized components, A0 and the axis statistics - is measured
-    without them, so ranking candidates costs no hulls at all (see `preprocess.preprocess`).
+    need_solidity=False 时不算凸包，凸实度和 solidity0 都是 NaN。
+    候选打分用到的单粒个数、A0、长短轴都不需要凸包，所以给候选排序时省掉这一步。
     """
-    # One scan of the mask. A0 is estimated from the areas it returns, which needs no hulls,
-    # and the hulls are then measured only where solidity can still be consulted.
+    # 扫一遍掩膜。A0 只用面积估计，不需要凸包，之后只在可能用到凸实度的地方算凸包。
     labels, rows, fill_solidity = component_table(mask, defer_solidity=True)
     if not rows:
         raise ValueError("no foreground components above the noise floor")
@@ -163,7 +143,7 @@ def calibrate(mask, mode=None, need_solidity=True):
         fill_solidity(SHAPE_FLOOR_RATIO * a0)
     singles = [r for r in rows if SINGLE_BAND[0] * a0 <= r["area"] <= SINGLE_BAND[1] * a0]
     if not singles:
-        # The fallback averages over every component, so they all need a hull.
+        # 退回用全部连通域，所以都要有凸包。
         if need_solidity:
             fill_solidity()
         singles = rows
@@ -176,13 +156,10 @@ def calibrate(mask, mode=None, need_solidity=True):
         "components": rows,
         "a0": a0,
         "r0": float(np.sqrt(a0 / np.pi)),
-        # The minor axis, not the equal-area radius, sets how close two grain centres can
-        # be: grains pack side by side, and for an elongated grain the distance-transform
-        # ridge inside one grain is longer than the gap between two of them.
+        # 两粒米中心能靠多近由短轴决定，不是等面积半径。米粒是并排挨着的。
         "major0": float(np.median([r["major"] for r in singles])),
         "minor0": float(np.median([r["minor"] for r in singles])),
-        # The width of one grain. Unlike solidity it is an inscribed-disc measurement, so
-        # it survives at the four-pixel scale where boundary statistics stop being usable.
+        # 单粒宽度。它是内切圆量出来的，粒宽只有 4 像素时仍可用，凸实度那时就不可靠了。
         "width0": float(np.median([r["width"] for r in singles])),
         "solidity0": solidity0,
         "axis_ratio0": float(np.median([r["axis_ratio"] for r in singles])),

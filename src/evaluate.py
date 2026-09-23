@@ -24,7 +24,7 @@ METHODS = {
 
 
 def _pipeline_fingerprint():
-    """Hash the modules that determine the cached masks, so stale caches are rebuilt."""
+    """对决定缓存掩膜的模块取哈希，代码改了缓存就重建。"""
     digest = hashlib.sha256()
     for name in ("preprocess.py", "calibrate.py"):
         digest.update((Path(__file__).parent / name).read_bytes())
@@ -44,7 +44,7 @@ def load_dataset(name):
 
 
 def preprocessed(name, use_cache=True):
-    """Run (or reuse) the preprocessing stage, which dominates runtime."""
+    """做预处理或读缓存，预处理占了大部分运行时间。"""
     ensure_dir(CACHE_ROOT)
     cache_path = CACHE_ROOT / f"{name}_{_pipeline_fingerprint()}.pkl"
     if use_cache and cache_path.exists():
@@ -59,8 +59,7 @@ def preprocessed(name, use_cache=True):
         try:
             pre = preprocess.preprocess(image)
         except ValueError as exc:
-            # No candidate binarisation described a field of grains. Reported rather than
-            # raised, so one unusable image cannot abort a full evaluation run.
+            # 没有一个候选二值图像一片米粒。记下来而不是抛异常，免得一张图中断整轮评测。
             failures.append((sample["file_name"], str(exc)))
             continue
         items.append(
@@ -85,11 +84,10 @@ def preprocessed(name, use_cache=True):
 
 
 def b5_configuration_matrix(datasets=("d1", "d2", "d3")):
-    """B5 across disc radii and with the ellipse correction on and off.
+    """B5 在不同圆盘半径、椭圆修正开和关下的结果。
 
-    The corner response assumes a disc small against the object it sits on, so its radius is
-    the parameter that decides whether the baseline works at a given grain size. Reporting
-    one setting would misrepresent it; the matrix shows what its best case is on each set.
+    角点响应要求圆盘比物体小得多，半径决定了它在某个米粒大小上能不能用。
+    只报一种设置对它不公平，这里给出每个数据集上的最好情况。
     """
     rows = []
     for radius_ratio in (0.5, 1.0, 2.0):
@@ -161,9 +159,8 @@ def run(datasets=("d1", "d2", "d3"), use_cache=True):
                     }
                 )
 
-            # D2 carries the touching level it was built with; a photographed set has no
-            # such label, so it is stratified by how much merging its own binarisation shows
-            # - the share of annotated grains that ended up inside a shared component.
+            # D2 有生成时的粘连率。照片没有这个标签，按它自己二值化后的粘连程度分层，
+            # 即标注米粒落在共享连通域里的比例。
             if name == "d4":
                 for it in items:
                     calib = it["pre"]["calib"]
@@ -184,7 +181,7 @@ def run(datasets=("d1", "d2", "d3"), use_cache=True):
 
 def main():
     from src import batch
-    batch.pin_threads()  # a whole-dataset run is a batch job; see src/batch.py
+    batch.pin_threads()  # 整个数据集跑一遍属于批处理，见 src/batch.py
 
     parser = argparse.ArgumentParser(description="Evaluate rice counting methods")
     parser.add_argument("--datasets", nargs="+", default=["d1", "d2", "d3"])

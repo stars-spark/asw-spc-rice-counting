@@ -6,37 +6,31 @@ from skimage.measure import label, regionprops
 
 from src import correct, preprocess, segment
 
-# Regions below this fraction of one grain are debris, not grains. Once concavity also
-# decides touching on fine-grained photographs, more clusters are cut, and a cut leaves
-# slivers between 0.3 and 0.45 grains that were being counted. Chosen on the real
-# photographs alone; the low-resolution set, not consulted, improves with it as well.
+# 小于单粒这个比例的区域当碎屑。凸实度判据在细粒照片上也启用后，切开的块变多，
+# 切口会留下 0.3 到 0.45 粒大小的碎片。只在 D1 上选的值，D3 也跟着变好。
 SPECK_RATIO = 0.45
 RESPLIT = True
 
-# Recovering grains that mask cleaning erased (see `recover_erased`). The size window is
-# on the raw-mask scale; the width and elongation bounds are relative to the calibrated
-# single grain. The size floor and width floor were chosen on the real photographs alone.
+# 找回被开运算抹掉的米粒时用的门限，见 recover_erased。面积范围按原始掩膜上的单粒算，
+# 宽度和长宽比相对标定的单粒。面积下限和宽度下限只在 D1 上选。
 RECOVER_AREA = (0.3, 1.3)
 RECOVER_MIN_WIDTH = 0.5
 RECOVER_MAX_ELONGATION = 3.0
 
 
 def _rejected(component, calib, pre):
-    """Regions that are not grains whatever their shape: foreign objects and bright edges."""
+    """不论形状都不算米粒的区域：异物和亮边。"""
     return (segment.is_foreign_object(component, calib)
             or segment.borders_bright_background(component, calib, pre.get("bright")))
 
 
 def recover_erased(pre, occupied, reference):
-    """Grains the 3x3 opening erased or shrank below the speck floor, taken from the raw mask.
+    """从开运算之前的原始掩膜里找回被 3x3 开运算抹掉或削小的米粒。
 
-    Grains three to five pixels wide lose most of their area to one opening, so on the
-    fine-grained sets most missed grains were thresholded correctly and then cleaned away.
-    Keeping the raw mask instead lets through the noise the opening is there to remove, so
-    the raw regions are recovered selectively: only those that nothing was counted or
-    rejected on, that are as wide, elongated and bright as a grain, and that do not lie
-    against bright background. Sizes are measured against single grains on the raw mask,
-    which the opening has not shrunk.
+    三到五像素宽的米粒开一次运算就去掉大半面积，D1、D3 上漏掉的米粒多数其实阈值分对了，
+    是被去噪去掉的。直接改用原始掩膜会把噪点也放进来，所以只挑这样的区域找回：
+    上面没有已计数或已剔除的区域，宽度、长宽比和亮度都像米粒，也不挨着亮背景。
+    大小按原始掩膜上的单粒来量，因为开运算没有削小它们。
     """
     raw, gray = pre.get("raw_mask"), pre.get("gray")
     calib = pre["calib"]
@@ -47,7 +41,7 @@ def recover_erased(pre, occupied, reference):
         return raw_labels, []
     areas = np.bincount(raw_labels.ravel())
 
-    # One grain on the raw scale: raw regions holding exactly one counted component.
+    # 原始掩膜上的单粒面积，取只含一个已计数连通域的原始区域。
     counted = np.where(occupied["counted"], calib["labels"], 0)
     inside = raw_labels > 0
     partners = defaultdict(set)
@@ -88,10 +82,9 @@ def recover_erased(pre, occupied, reference):
 
 def count_rice(img_bgr, beta=None, residual_ratio=correct.RESIDUAL_RATIO,
                fragment_ratio=correct.FRAGMENT_RATIO, pre=None, return_debug=False):
-    """ASW-SPC: adaptive-scale marker watershed with shape-prior correction.
+    """方法一的主流程：自适应尺度的标记分水岭，加形状先验修正。
 
-    Isolated components are counted directly; only components flagged as touching are
-    segmented, so a lone grain can never be split by the watershed.
+    孤立的连通域直接计数，只有判为粘连的才去分割，所以单粒米不会被分水岭切开。
     """
     pre = pre if pre is not None else preprocess.preprocess(img_bgr)
     calib = pre["calib"]
@@ -122,8 +115,7 @@ def count_rice(img_bgr, beta=None, residual_ratio=correct.RESIDUAL_RATIO,
             debug["singles"].append(component["label"])
             continue
 
-        # Work inside the component's bounding box: a full-frame distance transform and
-        # watershed per cluster is orders of magnitude more pixels for the same result.
+        # 在连通域的外接框里做距离变换和分水岭，比整幅图做快得多，结果一样。
         r0, c0, r1, c1 = component["bbox"]
         pad = 2
         r0, c0 = max(0, r0 - pad), max(0, c0 - pad)
@@ -167,11 +159,10 @@ def count_rice(img_bgr, beta=None, residual_ratio=correct.RESIDUAL_RATIO,
 
 
 def label_image(img_bgr=None, pre=None, **kwargs):
-    """Full-frame instance map plus what each instance was counted as.
+    """整幅的实例标号图，以及每个实例被算作几粒。
 
-    Regions resolved by area accounting rather than by an actual cut are reported with the
-    number of grains attributed to them, so a viewer can tell a genuine split from an
-    estimate. The verdicts are the ones `count_rice` reached, not re-derived here.
+    没有真正切开、按面积补数的区域会记下补了几粒，画图时能和真正切开的区分。
+    判定结果直接取 count_rice 的，这里不重新判断。
     """
     total, pre, debug = count_rice(img_bgr, pre=pre, return_debug=True, **kwargs)
     calib = pre["calib"]

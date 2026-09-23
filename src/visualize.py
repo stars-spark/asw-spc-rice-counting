@@ -1,10 +1,8 @@
-"""Figures for the report.
+"""生成报告里的插图。
 
-Labels are Chinese, to match the document they sit in, which needs a CJK font registered
-with matplotlib. Figure sizes are chosen close to the width they are finally printed at, so
-that the page scales them by roughly one and the type keeps the size it was set in; a
-figure drawn far wider than its printed size arrives on the page with unreadably small
-labels however large the point size looked in the source.
+图上的字用中文，与报告一致，需要给 matplotlib 注册中文字体。
+画布尺寸接近最终印刷宽度，排版时缩放比例约为 1，字号不走样；
+画得比印刷宽很多的图，放进版面后字会小得看不清。
 """
 import matplotlib
 
@@ -77,8 +75,7 @@ def _use_report_fonts():
 
 
 _use_report_fonts()
-# Every figure is set at the full text width, i.e. shrunk from its drawn width of about
-# 9 in to about 6 in, so text is drawn at 1.5 times the size it should read at on the page.
+# 每张图都按版心宽排版，画布约 9 英寸缩到约 6 英寸，所以字号放大 1.5 倍。
 FONT_SCALE = 1.5
 _BASE_FONTS = {"font.size": 11, "axes.titlesize": 12, "axes.labelsize": 11,
                "xtick.labelsize": 10, "ytick.labelsize": 10, "legend.fontsize": 10,
@@ -86,20 +83,18 @@ _BASE_FONTS = {"font.size": 11, "axes.titlesize": 12, "axes.labelsize": 11,
 
 
 def _fonts(scale):
-    """rcParams for type drawn at `scale` times the base sizes."""
+    """按基础字号的 scale 倍生成 rcParams。"""
     return {key: size * scale for key, size in _BASE_FONTS.items()}
 
 
 matplotlib.rcParams.update(_fonts(FONT_SCALE))
 
-# Single plots are drawn narrower than the image grids, so the page enlarges them less and
-# their type needs less compensation; these scales bring the labels to about 9 pt printed.
+# 单幅数据图画得比图像拼图窄，缩得少，字号补偿也小，这几个系数让印刷后字号约为 9 pt。
 PLOT_FONT_SCALE = 1.0
 SCATTER_FONT_SCALE = 1.25
 ABSTRACT_FONT_SCALE = 1.15
 
-# Okabe-Ito：色觉障碍下仍可分辨的一组颜色，学术出版常用。
-# 顺序固定，同一方法在所有图里用同一颜色——颜色跟着对象走，不跟着名次走。
+# Okabe-Ito 色盲友好配色。顺序固定，同一种方法在所有图里颜色相同，不随名次变。
 SERIES_COLORS = {
     "baseline": "#0072B2",   # 直接数连通域
     "ours": "#E69F00",       # 方法一
@@ -120,7 +115,7 @@ from skimage.segmentation import find_boundaries
 from src import calibrate, counter, io_utils, preprocess, segment
 from src.io_utils import RESULTS_ROOT, ensure_dir
 
-# 图上一律写中文名，代号放在括号里：读者第一次看到图时，数据集还没有被正文定义过。
+# 图上都写中文名，代号放在括号里。读者第一次看到图时，数据集可能还没在正文里定义。
 DATASET_CN = {"d1": "真实照片", "d2": "合成粘连图", "d3": "低分辨率图", "d4": "带直尺照片"}
 
 
@@ -188,7 +183,7 @@ def _show(ax, image, title, cmap=None, fontsize=None):
 
 
 def pipeline_figure(image_bgr, out_name="pipeline.png"):
-    """Original -> channel -> mask -> components -> distance -> seeds -> result."""
+    """流程图，原图、通道、二值图、连通域、距离图、种子、结果。"""
     pre = preprocess.preprocess(image_bgr)
     calib = pre["calib"]
     mask = pre["mask"]
@@ -213,8 +208,7 @@ def pipeline_figure(image_bgr, out_name="pipeline.png"):
     _show(axes[0, 3], distinct_label_rgb(calib["labels"]), f"(d) 连通域 {calib['n_components']} 个")
     _show(axes[1, 0], dist, "(e) 距离变换", "magma")
 
-    # Seeds are a handful of pixels each; dilate them in proportion to the image width so
-    # they stay visible once the panel is shrunk to a quarter of the page.
+    # 种子只有几个像素，按图像宽度成比例膨胀，缩到四分之一页宽后仍看得见。
     size = max(5, mask.shape[1] // 40) | 1
     grown = cv2.dilate((seeds > 0).astype(np.uint8),
                        cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (size, size)))
@@ -246,7 +240,7 @@ def pipeline_figure(image_bgr, out_name="pipeline.png"):
 
 
 def cluster_detail_figure(image_bgr, out_name="cluster_detail.png", n_clusters=2):
-    """Per-cluster view: mask, distance map, seeds, watershed, corrected count."""
+    """单个粘连块的细节，掩膜、距离图、种子、分水岭、修正后的粒数。"""
     pre = preprocess.preprocess(image_bgr)
     _, _, debug = counter.count_rice(image_bgr, pre=pre, return_debug=True)
     clusters = sorted(debug["clusters"], key=lambda c: -c["component"]["area"])[:n_clusters]
@@ -282,12 +276,10 @@ ROBUSTNESS_AXES = {
 
 
 def robustness_figure(out_name="robustness.png"):
-    """Counting error against four controlled degradations.
+    """四种可控退化下的计数误差。
 
-    Mean and median are drawn together because they separate two different things: how the
-    typical scene behaves, and whether any scene has collapsed. A log scale is needed on the
-    error axis for the same reason - a collapsed binarisation lands two orders of magnitude
-    away from an ordinary error, and a linear axis would render every other curve flat.
+    均值和中位数画在一起，一个看典型场景，一个看有没有场景崩溃。
+    误差轴用对数，二值化崩溃时误差比平常大两个数量级，线性轴会把其他曲线压平。
     """
     table = pd.read_csv(METRICS_ROOT / "robustness.csv")
     ours = table[table.method == "Ours_ASW_SPC"]
@@ -309,8 +301,7 @@ def robustness_figure(out_name="robustness.png"):
         if not collapsed.empty:
             ax.scatter(collapsed["level"], collapsed["MAE"], s=150, facecolors="none",
                        edgecolors="crimson", lw=1.8, zorder=5)
-            # One label for the whole run rather than one per point: the markers already
-            # say which levels collapsed, and per-point labels overlap each other here.
+            # 整条线标一次，不逐点标。标记已经说明了哪些档位崩溃，逐点标会互相重叠。
             counts = ", ".join(f"{int(r['blowups'])}" for _, r in collapsed.iterrows())
             ax.annotate(f"圈出档位的崩溃场景数：{counts}（共 {int(block['n'].iloc[0])} 个）",
                         xy=(0.5, 0.06), xycoords="axes fraction", ha="center",
@@ -333,17 +324,11 @@ def robustness_figure(out_name="robustness.png"):
 
 def render_comparison_figure(prompt="white seed", threshold=0.40, picks=None,
                              datasets=("d1", "d2", "d3")):
-    """One scene per dataset, counted by this method and by SAM 3, drawn side by side.
+    """每个数据集取一个场景，方法一与 SAM 3 的结果并排画。
 
-    Instances are outlined rather than filled so the grain underneath stays visible, and
-    neighbouring instances are given different colours, so a reader can check the count by
-    eye rather than take the reported number on trust. The counts go in the subplot titles
-    instead of a banner drawn into the image, because they need to be in Chinese.
-
-    One file per dataset rather than one stacked figure: the report sets every figure to the
-    full text width, and a three-row stack at that width is taller than the text block, so it
-    could only ever be placed on a page of its own and would truncate the page before it. Two
-    panels side by side are half as tall at the same panel size, so each fits beside text.
+    实例只描边不填色，看得见下面的米粒，相邻实例颜色不同，读者可以自己数着核对。
+    粒数写在子图标题里，因为要用中文。每个数据集单独一个文件，三行叠在一起按版心宽排会比版心还高，
+    只能单独占一页；两格并排高度减半，可以和正文排在一起。
     """
     from src import render, synth
     from src.teacher_sam import Sam3Teacher
@@ -358,7 +343,7 @@ def render_comparison_figure(prompt="white seed", threshold=0.40, picks=None,
     for name in datasets:
         samples = loaders[name]()
         index = picks.get(name)
-        if index is None:  # for the synthetic set, take the most heavily touching scene
+        if index is None:  # 合成数据取粘连最重的场景
             sample = max(samples, key=lambda s: s.get("touch_prob") or 0)
         else:
             sample = samples[index]
@@ -392,15 +377,11 @@ def render_comparison_figure(prompt="white seed", threshold=0.40, picks=None,
 
 
 def scope_failure_figure(out_name="scope_failure.png"):
-    """Two photographs the method gets wrong, with the foreground its selector chose.
+    """方法数错的两张照片，以及选中的前景。
 
-    The point is not that the counts are wrong but why. The selection score looks for a
-    field of many similar, elongated, convex, high-contrast objects, and in these images the
-    graduations of the ruler lying along the edge of the frame satisfy that description
-    better than the rice does: they are evenly spaced, identical in size, sharply bounded
-    and strongly contrasted, while the grains themselves are pale and vary in size. The
-    fraction of the chosen foreground that falls in the outer border of the frame is printed
-    with each mask rather than asserted, since that is where the ruler lies.
+    要说明的是为什么错。选择分数找的是很多大小相近、细长、凸、对比度高的物体，
+    这两张图里沿画面边缘放的尺子刻度比米粒更符合：间距均匀、大小一致、边界清楚、对比强烈，
+    米粒反而颜色浅、大小不一。每张掩膜旁标出选中前景落在画面外圈的比例，尺子就在那里。
     """
     from src import io_utils as io
 
@@ -421,8 +402,7 @@ def scope_failure_figure(out_name="scope_failure.png"):
         if pre["calib"]["a0"] < 60:
             picks.append(sample)
 
-    # One row: stacked, the two examples came to 13.8 cm on the page and no longer fitted
-    # beside the text that introduces them.
+    # 排成一行。上下叠放时两个例子在页面上高 13.8 cm，放不到介绍它们的文字旁边。
     fig, axes = plt.subplots(1, 2 * len(picks), figsize=(9.6, 2.9), squeeze=False)
     for index, sample in enumerate(picks):
         row, left = 0, 2 * index
@@ -454,15 +434,11 @@ def scope_failure_figure(out_name="scope_failure.png"):
 
 def appendix_renders_figure(dataset, n_scenes=2, prompt="white seed", threshold=0.40,
                             teacher=None, files=None):
-    """Scenes from one dataset, counted by this method and by SAM 3, one file per scene.
+    """附录用图，某个数据集的若干场景，方法一与 SAM 3 并排，每个场景一个文件。
 
-    By default scenes are taken evenly across the set rather than chosen, so the appendix
-    shows what the methods usually do rather than what they do at their best. ``files`` names
-    the scenes instead, by file-name prefix and in output order. D1 uses it: the evenly taken
-    first scene is already the main-text figure, so its place goes to the scene with the fewest
-    grain-by-grain errors against the annotation boxes among the rest. Counts go in the panel titles because the drawing itself carries no text.
-    One file per scene, named ``_a``, ``_b``, ..., so each can be placed next to the text that
-    discusses it.
+    默认在数据集里等间隔取场景，不挑，附录展示的是通常情况而不是最好情况。
+    files 按文件名前缀指定场景，按给出的顺序输出。D1、D3 等间隔取到的第一张已经是正文图，所以改用指定的场景。
+    粒数写在子图标题里，文件名按 _a、_b ... 编号，方便放在讨论它的文字旁边。
     """
     from src import render, synth
     from src import io_utils as io
@@ -509,7 +485,7 @@ def appendix_renders_figure(dataset, n_scenes=2, prompt="white seed", threshold=
 
 
 def _tidy(ax):
-    """去掉上右边框、让网格退到背景里：坐标系是背景，数据才是主角。"""
+    """去掉上边框和右边框，网格线调淡。"""
     for side in ("top", "right"):
         ax.spines[side].set_visible(False)
     for side in ("left", "bottom"):
@@ -520,9 +496,7 @@ def _tidy(ax):
 
 
 # --------------------------------------------------- 与正文对照的局部说明图
-#
-# 这一组图的用途与流程图、结果图不同：正文里凡是用文字描述一种现象或一条判据的
-# 地方，就在旁边给出把该现象放大出来的实图，让读者不必只凭文字想象。
+# 正文里用文字描述某种现象或某条判据的地方，在旁边放一张把它放大的实图。
 
 def _crop_around(image, box, pad_ratio=0.45):
     """按外接框裁一块带留白的局部，返回裁剪图与裁剪框。"""
@@ -535,7 +509,7 @@ def _crop_around(image, box, pad_ratio=0.45):
 
 
 def touching_problem_figure(out_name="problem_zoom.png"):
-    """引言用图：把'两粒挨在一起就只被计为一粒'这件事放大给读者看。"""
+    """引言用图，把两粒米挨在一起只计为一粒的情况放大给读者看。"""
     from src import synth
     sample = max(synth.load_d2(), key=lambda s: s.get("touch_prob") or 0)
     image = io_utils.imread(sample["path"])
@@ -567,9 +541,9 @@ def touching_problem_figure(out_name="problem_zoom.png"):
 
 
 def binarisation_failure_figure(out_name="binarisation_failure.png"):
-    """3.2 用图：前景取亮还是取暗，都会多出一块巨大的伪前景。
+    """3.2 节用图，前景取亮还是取暗都会多出一大块假前景。
 
-    两种极性各画一张，并把最大连通域涂成蓝色，读者一眼能看出多出来的是什么。
+    两种极性各画一张，最大的连通域涂成蓝色。
     """
     sample = io_utils.load_d1()[0]
     image = io_utils.imread(sample["path"])
@@ -602,7 +576,7 @@ def binarisation_failure_figure(out_name="binarisation_failure.png"):
 
 
 def touching_criterion_figure(out_name="touching_criterion.png"):
-    """3.4 用图：单粒与粘连块在凸包和最大内切圆上的差别，一眼可辨。"""
+    """3.4 节用图，单粒与粘连块在凸包和最大内切圆上的差别。"""
     from skimage.morphology import convex_hull_image
     from src import synth
     sample = max(synth.load_d2(), key=lambda s: s.get("touch_prob") or 0)
@@ -647,7 +621,7 @@ def touching_criterion_figure(out_name="touching_criterion.png"):
 
 
 def b3_seed_figure(out_name="b3_seeds.png"):
-    """4.3 用图：B3 的全局阈值被硬币抬高，米粒的种子被整片抹掉。"""
+    """4.3 节用图，B3 的全局阈值被硬币抬高，米粒的种子被整片抹掉。"""
     from src import baselines
     sample = io_utils.load_d1()[0]
     image = io_utils.imread(sample["path"])
@@ -688,14 +662,11 @@ def b3_seed_figure(out_name="b3_seeds.png"):
 
 
 def terrain_figure(out_name="terrain_3d.png", elev=30, azim=-58, z_exaggeration=0.65):
-    """把距离变换当成地形来看。
+    """把距离变换画成地形。
 
-    注水分割真正淹没的曲面是距离变换的负值。米粒内部离背景远，取负之后陷成一个盆地；
-    两粒贴合处离背景近，取负之后隆成一道埂。一粒米一个盆地，水自盆底的种子漫上来，
-    在埂上相遇，相遇的地方就是切分线。3.1 节用文字描述的这件事，这张图直接画了出来。
-
-    选的是一个真被切开的两粒粘连块，而不是按面积补数的那种：只有前者的地形上
-    才既有两个盆地、又有一条切分线。
+    分水岭淹没的曲面是距离变换取负。米粒内部离背景远，取负后是盆地；两粒贴合处离背景近，取负后是一道埂。
+    水从盆底的种子涨上来，在埂上相遇，相遇处就是切分线。
+    选的是真正被切开的两粒粘连块，按面积补数的块在地形上没有两个盆地和切分线。
     """
     from src import synth
 
@@ -1256,8 +1227,7 @@ def _abstract_curve(ax):
 def _abstract_bars(ax):
     """四种做法在同一批测试图上的误差。
 
-    同一批是关键：学生模型只在留出集上测过，把它的数字与另外几种在全集上的
-    数字并排，比较就不成立了，所以这里四者用的都是那 162 张测试图。
+    学生模型只在留出的 162 张测试图上测过，所以另外三种也只取这 162 张，否则没法比。
     """
     from src import plotstyle as ps
     table = pd.read_csv(METRICS_ROOT / "student_test.csv")
@@ -1294,11 +1264,9 @@ ABSTRACT_SYNTH_IMAGE = "touch80_05.png"
 
 
 def abstract_figure(out_name="graphical_abstract.pdf"):
-    """首页图文摘要：上排两个场景的逐粒结果，下排两幅定量图。
+    """首页图文摘要。上排两个场景的逐粒结果，下排两幅定量图。
 
-    题目问的是"数出多少粒"和"解决连体计数不准"，这几幅各答一问：
-    上排说明程序把哪些区域算作了几粒，左下说明粘连加重时误差并未跟着涨，
-    右下把四种做法放在同一批图上比较。
+    上排看程序把哪些区域算成几粒，左下看粘连加重时误差是否跟着涨，右下把四种做法放在同一批图上比。
     """
     from src import counter, plotstyle as ps, render, synth
 
@@ -1425,10 +1393,8 @@ def main():
     d2 = synth.load_d2()
     dense = max(d2, key=lambda s: s["touch_prob"])
 
-    # The calibration figure needs a scene that still holds both single grains and clusters:
-    # at the heaviest touching level most grains have merged, leaving too few components for
-    # the area distribution to show the structure the figure is there to show. The scene
-    # with the most components is the one that shows it.
+    # 标定图要一个既有单粒又有粘连块的场景。粘连最重的场景里多数米粒都粘在一起，
+    # 连通域太少，面积分布看不出结构，所以在中等粘连率里取连通域最多的一个。
     mixed = max(
         (s for s in d2 if 0.3 <= (s.get("touch_prob") or 0) <= 0.6),
         key=lambda s: len(preprocess.preprocess(io_utils.imread(s["path"]))["calib"]["components"]),
@@ -1460,8 +1426,7 @@ def main():
             print(f"wrote {path}")
 
 
-# The appendix does not take every set's scenes evenly: the first evenly taken D1 and D3
-# scenes are already the main-text figures, so these are the ones the report shows instead.
+# 附录不对每个数据集都等间隔取场景。D1、D3 等间隔取到的第一张已是正文图，这里换成别的场景。
 APPENDIX_SCENES = {
     "d1": ["IMG_5958", "IMG20240925164317"],
     "d2": None,
@@ -1470,7 +1435,7 @@ APPENDIX_SCENES = {
 
 
 def sam3_figures():
-    """The figures that run SAM 3 itself: one scene per set, and the appendix scenes."""
+    """需要运行 SAM 3 的图，每个数据集一个场景，加上附录场景。"""
     from src.teacher_sam import Sam3Teacher
 
     for path in render_comparison_figure():
@@ -1491,6 +1456,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
     if args.sam3:
         sam3_figures()
-        # Leave without interpreter shutdown, so no stray thread keeps the GPU memory.
+        # 跳过解释器的正常退出，免得残留线程占着显存。
         os._exit(0)
     main()

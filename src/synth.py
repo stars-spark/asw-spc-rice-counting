@@ -17,7 +17,7 @@ PLACEMENT_GAP_PX = 2
 
 
 def load_grain_bank(limit=200, target_major=TARGET_MAJOR_PX):
-    """Cut single grains out of the variety dataset and rescale them to a common size."""
+    """从品种数据集里抠出单粒米，缩放到统一大小。"""
     bank = []
     for path in sorted(glob.glob(str(GRAIN_SOURCE / "*")))[:limit]:
         img = cv2.imread(path, cv2.IMREAD_COLOR)
@@ -89,9 +89,9 @@ def _overlap(occupancy, mask, top, left):
 
 
 def build_scene(bank, n_grains, touch_prob, canvas_size=900, rng=None, bg_value=20, noise_std=4.0):
-    """Compose a scene where `touch_prob` controls how often a grain is laid against another.
+    """合成一个场景，touch_prob 控制一粒米贴着另一粒放的概率。
 
-    Ground truth is exact by construction: it is the number of grains actually placed.
+    真值就是实际放下的粒数，按构造是精确的。
     """
     rng = rng or np.random.default_rng()
     canvas = np.full((canvas_size, canvas_size, 3), bg_value, dtype=np.uint8)
@@ -141,10 +141,9 @@ def build_scene(bank, n_grains, touch_prob, canvas_size=900, rng=None, bg_value=
 
 
 def build_d2(per_level=8, count_range=(40, 100), seed=2026, root=D2_ROOT):
-    """Generate the D2 benchmark: five touching levels with exact ground-truth counts.
+    """生成 D2，五档粘连率，真值精确。
 
-    The grain count varies per scene so that a constant predictor cannot score well and
-    the predicted-vs-true regression stays meaningful.
+    每个场景的粒数不同，这样输出常数的预测器拿不到好成绩，预测值与真值的回归也有意义。
     """
     ensure_dir(root)
     bank = load_grain_bank(limit=300)

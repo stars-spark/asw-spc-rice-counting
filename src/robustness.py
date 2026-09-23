@@ -1,14 +1,8 @@
-"""Controlled-degradation study on the synthetic set.
+"""在 D2 上做可控退化实验。
 
-Counting accuracy is reported against four degradations applied to the same scenes: blur,
-sensor noise, contrast compression and loss of resolution. The synthetic set is used because
-its counts are exact by construction, so the curves measure the methods rather than the
-annotation - and because the same scene can be degraded to any level, which no photographed
-set allows.
-
-Every degradation is expressed in units of the grain itself (the nominal minor axis of a
-synthesised grain), so a level means the same thing regardless of how the scenes were
-rendered.
+对同一批场景分别加模糊、噪声、降对比度、降分辨率四种退化。用合成图是因为它的真值按构造是精确的，
+曲线反映的是方法而不是标注，同一场景还可以退化到任意程度，照片做不到。
+退化程度都以米粒本身为单位，即合成米粒的名义短轴，与场景怎么渲染无关。
 """
 import argparse
 from functools import partial
@@ -23,18 +17,17 @@ from src.io_utils import RESULTS_ROOT, ensure_dir
 
 METRICS_ROOT = RESULTS_ROOT / "metrics"
 
-# Synthesised grains are drawn at a fixed major axis, so their width is known in advance and
-# can serve as the unit the degradation levels are quoted in.
+# 合成米粒的长轴固定，粒宽事先已知，退化程度用它做单位。
 GRAIN_WIDTH_PX = synth.TARGET_MAJOR_PX / 2.8
 
 LEVELS = {
-    # Gaussian blur, standard deviation as a fraction of one grain width.
+    # 高斯模糊，标准差以粒宽的比例计。
     "blur": (0.0, 0.1, 0.2, 0.35, 0.5, 0.7),
-    # Additive Gaussian noise, standard deviation in grey levels.
+    # 加性高斯噪声，标准差以灰度级计。
     "noise": (0.0, 5.0, 10.0, 20.0, 30.0, 45.0),
-    # Contrast retained after compressing every channel towards the frame mean.
+    # 把各通道向全图均值压缩后保留的对比度比例。
     "contrast": (1.0, 0.7, 0.5, 0.3, 0.15, 0.08),
-    # Downsampling factor; the method then sees genuinely fewer pixels per grain.
+    # 下采样倍数，方法看到的每粒米像素确实变少了。
     "resolution": (1.0, 1.5, 2.0, 3.0, 4.5, 6.0),
 }
 
@@ -46,7 +39,7 @@ METHODS = {
 
 
 def degrade(image, axis, level, rng):
-    """Apply one degradation at one level. Level zero of every axis is the original."""
+    """按某一程度施加一种退化，每种退化的第 0 档都是原图。"""
     if axis == "blur":
         sigma = level * GRAIN_WIDTH_PX
         if sigma <= 0:
@@ -76,7 +69,7 @@ def degrade(image, axis, level, rng):
 
 
 def _evaluate_one(job):
-    """Counts of every method on one scene under one degradation level."""
+    """一个场景在某一退化程度下各方法的计数。"""
     sample, axis, level = job
     rng = np.random.default_rng(abs(hash((sample["file_name"], axis, level))) % (2 ** 32))
     image = degrade(io_utils.imread(sample["path"]), axis, level, rng)
@@ -85,9 +78,7 @@ def _evaluate_one(job):
     try:
         pre = preprocess.preprocess(image)
     except ValueError:
-        # No candidate binarisation described a field of grains. The scene is not skipped:
-        # a degradation severe enough to defeat the stage is a result, and recording it as
-        # a count of zero is what the error curve should show.
+        # 没有候选二值图像一片米粒。这个场景不跳过，退化严重到二值化失败本身就是结果，记为 0 粒。
         for name in METHODS:
             rows.append({"axis": axis, "level": level, "method": name,
                          "file_name": sample["file_name"], "gt": sample["gt_count"],
@@ -124,11 +115,8 @@ def run(workers=10, limit=None):
     per_run = pd.DataFrame([row for rows in collected for row in rows])
     per_run["error"] = per_run["pred"] - per_run["gt"]
 
-    # The mean and the median are both reported because they disagree where it matters: a
-    # degradation that defeats the binarisation on a couple of scenes sends their counts
-    # into the thousands, which moves the mean by two orders of magnitude while leaving the
-    # typical scene untouched. Quoting only the mean would describe a method that collapses;
-    # quoting only the median would hide that it can.
+    # 均值和中位数都报。二值化在一两个场景上失效时计数会到几千，均值被拉高两个数量级，
+    # 典型场景却没变。只报均值会显得方法整体崩溃，只报中位数又会把崩溃藏起来。
     summary = (per_run.groupby(["axis", "level", "method"])
                .agg(n=("error", "size"),
                     MAE=("error", lambda e: float(np.mean(np.abs(e)))),

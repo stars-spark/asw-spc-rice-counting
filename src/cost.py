@@ -1,9 +1,7 @@
-"""Compute cost of the proposed method against SAM 3, measured on the same machine.
+"""在同一台机器上测方法一与 SAM 3 的计算开销。
 
-Each configuration runs in its own interpreter, so its peak resident memory is its own and
-not inherited from another model loaded earlier. Images are taken evenly from each dataset.
-Times exclude loading the image from disk; for SAM 3 the one-off model load is reported
-separately, and GPU timings are synchronised so they cover the whole forward pass.
+每种配置在单独的解释器里跑，峰值内存不会继承前面加载过的模型。图片从各数据集均匀抽取。
+计时不含读盘；SAM 3 加载模型的一次性时间单独报告，GPU 计时做了同步，覆盖整个前向过程。
 """
 import argparse
 import json
@@ -23,8 +21,7 @@ from src.io_utils import RESULTS_ROOT, ensure_dir
 METRICS_ROOT = RESULTS_ROOT / "metrics"
 PER_DATASET = 10
 PROMPT, THRESHOLD = "white seed", 0.40
-# Hard limit per configuration. A child that hangs is killed together with every thread
-# and process it started, so it cannot keep holding GPU memory after the benchmark ends.
+# 每种配置的硬性时限。子进程卡住时连同它启动的线程和进程一起杀掉，免得测完后还占着显存。
 RUN_TIMEOUT_S = 1500
 
 
@@ -45,9 +42,9 @@ def _peak_rss_mb():
 
 def _run_ours(per_dataset):
     from src import batch, counter, io_utils
-    batch.pin_threads()  # one thread per process: measured faster than letting BLAS spread
+    batch.pin_threads()  # 每个进程单线程，实测比让 BLAS 多线程快
     items = [(name, io_utils.imread(s["path"])) for name, s in _samples(per_dataset)]
-    counter.count_rice(items[0][1])  # warm-up: first call pays for imports and allocations
+    counter.count_rice(items[0][1])  # 预热，第一次调用要付导入和分配内存的开销
 
     times = {}
     for name, image in items:
@@ -60,9 +57,9 @@ def _run_ours(per_dataset):
 def _run_ours_gpu(per_dataset):
     import cupy as cp
     from src import batch, gpu_pipeline, io_utils
-    batch.pin_threads()  # the GPU path still runs hulls and the KDE on the host
+    batch.pin_threads()  # GPU 版的凸包和核密度估计仍在主机上算
     items = [(name, io_utils.imread(s["path"])) for name, s in _samples(per_dataset)]
-    gpu_pipeline.count_rice_gpu(items[0][1])  # warm-up: CUDA context and kernel compilation
+    gpu_pipeline.count_rice_gpu(items[0][1])  # 预热，CUDA 上下文和内核编译
     cp.cuda.Stream.null.synchronize()
     cp.get_default_memory_pool().free_all_blocks()
     start_free, total = cp.cuda.runtime.memGetInfo()
@@ -80,7 +77,7 @@ def _run_ours_gpu(per_dataset):
 
 
 def _run_student(per_dataset, device):
-    """The distilled student: one forward pass per image."""
+    """蒸馏得到的学生模型，每张图一次前向。"""
     import torch
     from src import batch, io_utils, student
     batch.pin_threads()
@@ -97,7 +94,7 @@ def _run_student(per_dataset, device):
         if device == "cuda":
             torch.cuda.synchronize()
 
-    student.predict_count(model, items[0][1], device)   # warm-up
+    student.predict_count(model, items[0][1], device)  # 预热
     sync()
     if device == "cuda":
         torch.cuda.reset_peak_memory_stats()
@@ -124,8 +121,7 @@ def _run_sam3(per_dataset, device, limit=None):
     if limit:
         items = items[:: max(len(items) // limit, 1)][:limit]
 
-    # bfloat16 has no fast path on this CPU and runs orders of magnitude slower there, so a
-    # machine without a GPU would load the model in float32; that is what is measured.
+    # 这台 CPU 上 bfloat16 没有快速路径，慢几个数量级，没有 GPU 的机器会用 float32 加载，这里测的就是它。
     dtype = torch.bfloat16 if device == "cuda" else torch.float32
     start = time.perf_counter()
     teacher = Sam3Teacher(device=device, dtype=dtype)
@@ -136,7 +132,7 @@ def _run_sam3(per_dataset, device, limit=None):
         if device == "cuda":
             torch.cuda.synchronize()
 
-    teacher.segment(items[0][1], prompt=PROMPT, threshold=THRESHOLD)  # warm-up
+    teacher.segment(items[0][1], prompt=PROMPT, threshold=THRESHOLD)  # 预热
     sync()
     if device == "cuda":
         torch.cuda.reset_peak_memory_stats()
@@ -154,7 +150,7 @@ def _run_sam3(per_dataset, device, limit=None):
 
 
 def _in_process(key, per_dataset, cpu_limit):
-    """Run one configuration in a fresh interpreter and read back its JSON result line."""
+    """在新的解释器里跑一种配置，读回它输出的那行 JSON。"""
     cmd = [sys.executable, "-m", "src.cost", "--only", key,
            "--per-dataset", str(per_dataset), "--cpu-limit", str(cpu_limit)]
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
@@ -172,10 +168,9 @@ def _in_process(key, per_dataset, cpu_limit):
 
 
 def _weights_mb():
-    """Size of the safetensors weights in the local Hugging Face cache.
+    """本地 Hugging Face 缓存里 safetensors 权重的大小。
 
-    Read from the cache directory rather than through `snapshot_download`, which refuses a
-    snapshot that lacks the original `sam3.pt` checkpoint - a file transformers never loads.
+    直接读缓存目录。snapshot_download 会因为缺少原始的 sam3.pt 而报错，但 transformers 根本不加载那个文件。
     """
     from huggingface_hub.constants import HF_HUB_CACHE
     root = Path(HF_HUB_CACHE) / "models--facebook--sam3" / "snapshots"
@@ -205,15 +200,13 @@ def main():
         else:
             result = _run_sam3(args.per_dataset, "cpu", args.cpu_limit)
         print("RESULT " + json.dumps(result), flush=True)
-        # Leave without the normal interpreter shutdown: a library thread that never joins
-        # would otherwise keep the process, and its GPU memory, alive after the result is in.
+        # 不走正常的解释器退出流程，否则某个不 join 的库线程会让进程和显存一直留着。
         os._exit(0)
 
     parser_force = args.force
     runs = {}
     for key in ("ours_cpu", "ours_gpu", "student_gpu", "sam3_gpu", "sam3_cpu"):
-        # Each configuration is saved as soon as it finishes, so a slow or failed later one
-        # does not throw away the earlier measurements.
+        # 每种配置跑完立刻保存，后面的慢了或失败了也不会丢掉前面的结果。
         saved = METRICS_ROOT / f"cost_{key}.json"
         if saved.exists() and not parser_force:
             runs[key] = json.loads(saved.read_text())

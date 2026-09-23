@@ -1,19 +1,11 @@
-"""Point labels for training the student: where the grains are, not just how many.
+"""训练学生模型用的点标注，给出米粒在哪里，而不只是有几粒。
 
-Three sources, deliberately kept apart so the report can say which supervision a result
-came from:
-
-* ``exact``   - the synthetic set, whose grain centres are known by construction. The
-                scenes are regenerated from the same seed rather than stored, which
-                reproduces the manifest counts exactly (checked).
-* ``sam3``    - the teacher's instance masks, reduced to their centroids. This is the only
-                supervision available for the photographs without using their labels.
-* ``human``   - the centre of each annotated box. Used to *evaluate*, and to measure how
-                wrong the teacher's labels are, never to train the student.
-
-Teacher labels are not assumed to be good: `compare_to_human` reports the teacher's count
-error and how well its points line up with the annotated ones, so the student's result can
-be read against the quality of what it was taught from.
+三种来源分开存放，报告里能说清每个结果用的是哪种监督。
+exact，合成图，米粒中心在生成时已知。场景用同一随机种子重新生成而不存盘，粒数与清单一致，核对过。
+sam3，教师模型的实例掩膜取质心。不用人工标注的前提下，照片只有这一种监督。
+human，人工标注框的中心。只用于评测和衡量教师标签的误差，不用来训练学生。
+compare_to_human 会报告教师的计数误差和点位与人工标注的吻合程度，
+学生的结果可以对照教师标签的质量来看。
 """
 import argparse
 
@@ -27,7 +19,7 @@ PROMPT, THRESHOLD = "white seed", 0.40
 
 
 def exact_points_d2():
-    """Regenerate the synthetic scenes to recover the centre of every placed grain."""
+    """重新生成合成场景，取回每粒米的中心。"""
     bank = synth.load_grain_bank(limit=300)
     rng = np.random.default_rng(2026)
     out = {}
@@ -42,7 +34,7 @@ def exact_points_d2():
 
 
 def sam3_points(samples, teacher=None, prompt=PROMPT, threshold=THRESHOLD):
-    """Centroid of every instance mask the teacher returns above `threshold`."""
+    """教师返回的得分高于 threshold 的每个实例掩膜的质心。"""
     if teacher is None:
         from src.teacher_sam import Sam3Teacher
         teacher = Sam3Teacher()
@@ -81,17 +73,16 @@ def load(name):
 
 
 def compare_to_human(teacher, human, tolerance=None):
-    """How good the teacher's labels are: count error, and whether the points match.
+    """教师标签有多好，看计数误差和点位是否对得上。
 
-    A teacher point counts as matched when it is the nearest one to an annotated point and
-    within `tolerance` pixels of it, greedily, so precision and recall describe placement
-    rather than count alone.
+    教师的一个点是某个标注点的最近点、且距离在 tolerance 像素内，就算配上，按贪心配对。
+    这样查准率和查全率反映的是位置，不只是个数。
     """
     rows = []
     for name, truth in human.items():
         pred = teacher.get(name, np.empty((0, 2), np.float32))
         limit = tolerance
-        if limit is None:  # scale with the scene: half the typical nearest-neighbour gap
+        if limit is None:  # 随场景缩放，取典型最近邻间距的一半
             if len(truth) > 1:
                 d = np.linalg.norm(truth[:, None, :] - truth[None, :, :], axis=2)
                 np.fill_diagonal(d, np.inf)

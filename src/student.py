@@ -1,19 +1,12 @@
-"""A small student network distilled from SAM 3, trained to predict a grain density map.
+"""从 SAM 3 蒸馏出的小型学生网络，预测米粒密度图。
 
-Counting by density rather than by instances is deliberate. The grains in two of the three
-sets are about four pixels wide, which is too small to ask a network for clean instance
-boundaries, but wide enough to place a blob at: the count is then the integral of the
-predicted map, so the loss never depends on separating one grain from its neighbour - the
-very thing the classical pipeline has to work hardest for.
+用密度图而不是实例计数是有意的。三组数据中有两组米粒只有约 4 像素宽，
+让网络给出干净的实例边界太难，但放一个斑点是够的。粒数就是预测图的积分，
+损失不依赖把一粒米和邻居分开，而这恰恰是几何方法最费力的地方。
 
-Supervision is mixed on purpose (see `src/pseudo.py`):
-
-* the synthetic set is supervised with its exact construction-time centres;
-* the two photographed sets with SAM 3's mask centroids, which is the only supervision
-  available without using their human labels.
-
-The human labels are never trained on. They are the test set, so the student's number can
-be read as "what a 2 MB network learned from a 3.2 GB teacher, measured against people".
+监督来源是混合的，见 src/pseudo.py。合成图用生成时的精确中心，
+两组照片用 SAM 3 掩膜的质心，不用人工标注时照片只有这一种监督。
+人工标注从不参与训练，只作测试集，学生的成绩就是它从教师那里学到了多少，由人工标注来衡量。
 """
 import argparse
 import time
@@ -30,18 +23,17 @@ from src.io_utils import RESULTS_ROOT, ensure_dir
 MODEL_ROOT = RESULTS_ROOT / "student"
 METRICS_ROOT = RESULTS_ROOT / "metrics"
 CROP = 192
-DENSITY_SCALE = 100.0        # keeps the target away from float noise; divided out again
-SIGMA_FRACTION = 0.30        # gaussian width as a fraction of the nearest-neighbour gap
+DENSITY_SCALE = 100.0  # 让目标值远离浮点噪声，最后再除回去
+SIGMA_FRACTION = 0.30  # 高斯宽度占最近邻间距的比例
 SIGMA_LIMITS = (1.0, 12.0)
 
 
-# --------------------------------------------------------------------------- data
+# ---------------------------------------------------------------------------- 数据
 
 def density_map(shape, points, sigma_fraction=SIGMA_FRACTION):
-    """Sum of gaussians at `points`, one per grain, integrating to the grain count.
+    """在 points 处各放一个高斯，一粒米一个，积分等于粒数。
 
-    The width follows the scene: half the typical distance to the nearest other grain, so
-    the same network sees a comparable blob whether a grain is 4 or 25 pixels wide.
+    高斯宽度随场景取最近邻间距典型值的一半，米粒 4 像素宽还是 25 像素宽，网络看到的斑点都差不多。
     """
     canvas = np.zeros(shape[:2], dtype=np.float32)
     if len(points) == 0:
@@ -60,7 +52,7 @@ def density_map(shape, points, sigma_fraction=SIGMA_FRACTION):
         if 0 <= r < shape[0] and 0 <= c < shape[1]:
             canvas[r, c] += 1.0
     blurred = cv2.GaussianBlur(canvas, (0, 0), sigma, borderType=cv2.BORDER_CONSTANT)
-    # Blurring near a border loses mass; rescale so the integral is still the count.
+    # 靠近边界的模糊会损失质量，重新缩放使积分仍等于粒数。
     total = blurred.sum()
     if total > 0:
         blurred *= canvas.sum() / total
@@ -68,7 +60,7 @@ def density_map(shape, points, sigma_fraction=SIGMA_FRACTION):
 
 
 def build_records(datasets=("d1", "d2", "d3"), supervision="sam3"):
-    """[(image_path, points, dataset, file_name)] for every training image."""
+    """每张训练图的 [(image_path, points, dataset, file_name)]。"""
     out = []
     if "d2" in datasets:
         labels = pseudo.load("d2_exact")
@@ -84,7 +76,7 @@ def build_records(datasets=("d1", "d2", "d3"), supervision="sam3"):
 
 
 def split_records(records, seed=0, fractions=(0.7, 0.1, 0.2)):
-    """Split per dataset, so every split holds all three and none share a source image."""
+    """按数据集分别划分，每个划分都含三组数据，且没有来自同一张原图的样本。"""
     rng = np.random.default_rng(seed)
     train, val, test = [], [], []
     for name in sorted({r[2] for r in records}):
@@ -99,7 +91,7 @@ def split_records(records, seed=0, fractions=(0.7, 0.1, 0.2)):
 
 
 class Crops(torch.utils.data.Dataset):
-    """Random crops with their density target; the count is the integral of the target."""
+    """随机裁块及其密度目标，粒数是目标的积分。"""
 
     def __init__(self, records, crop=CROP, length=2000, seed=0, balanced=True):
         self.records = records
@@ -107,9 +99,8 @@ class Crops(torch.utils.data.Dataset):
         self.length = length
         self.rng = np.random.default_rng(seed)
         self.cache = {}
-        # Draw the dataset first, then an image from it. Sampling images uniformly would
-        # spend 89% of training on D3, which holds 503 of the 567 training images, and the
-        # two sets with the largest grains would hardly be seen.
+        # 先抽数据集再抽图。直接按图均匀抽样的话，567 张训练图里 D3 占 503 张，
+        # 89% 的训练花在 D3 上，米粒最大的两组几乎见不到。
         self.balanced = balanced
         self.by_dataset = {}
         for index, record in enumerate(records):
@@ -152,7 +143,7 @@ class Crops(torch.utils.data.Dataset):
         return torch.from_numpy(patch).permute(2, 0, 1), torch.from_numpy(label)[None]
 
 
-# -------------------------------------------------------------------------- model
+# ---------------------------------------------------------------------------- 模型
 
 def block(in_ch, out_ch):
     return nn.Sequential(
@@ -162,7 +153,7 @@ def block(in_ch, out_ch):
 
 
 class UNet(nn.Module):
-    """Three-level U-Net, ~0.5 M parameters, predicting one density channel."""
+    """三层 U-Net，默认宽度下约 27 万参数，输出一个密度通道。"""
 
     def __init__(self, width=24):
         super().__init__()
@@ -179,13 +170,13 @@ class UNet(nn.Module):
         e3 = self.enc3(F.max_pool2d(e2, 2))
         d2 = self.dec2(torch.cat([F.interpolate(e3, size=e2.shape[-2:], mode="nearest"), e2], 1))
         d1 = self.dec1(torch.cat([F.interpolate(d2, size=e1.shape[-2:], mode="nearest"), e1], 1))
-        return F.softplus(self.head(d1))      # a density is never negative
+        return F.softplus(self.head(d1))  # 密度不会是负的
 
 
-# ----------------------------------------------------------------------- training
+# ---------------------------------------------------------------------------- 训练
 
 def predict_count(model, image, device, tile=512):
-    """Count one whole image: the integral of the predicted density."""
+    """对整张图计数，即预测密度的积分。"""
     model.eval()
     with torch.no_grad():
         x = np.ascontiguousarray(image[:, :, ::-1]).astype(np.float32) / 255.0
@@ -238,7 +229,7 @@ def train(args):
     for step, (images, targets) in enumerate(loader, 1):
         images, targets = images.to(device, non_blocking=True), targets.to(device, non_blocking=True)
         predicted = model(images)
-        # Pixel loss keeps the blobs in the right places; the count term is what is scored.
+        # 像素损失让斑点落在正确位置，计数项才是最终考核的。
         loss = F.mse_loss(predicted, targets) + args.count_weight * F.l1_loss(
             predicted.sum(dim=(1, 2, 3)), targets.sum(dim=(1, 2, 3))) / DENSITY_SCALE
         optimiser.zero_grad(set_to_none=True)
@@ -262,10 +253,9 @@ def train(args):
 
 
 def compare(args):
-    """Student vs the classical pipeline vs the teacher, on the held-out images.
+    """在留出图上比较学生、几何方法和教师。
 
-    Truth here is the human annotation for the photographed sets and the construction-time
-    count for the synthetic one - never the teacher, which is itself under test.
+    照片的真值是人工标注，合成图是生成时的粒数，从不用教师，教师本身也在被检验。
     """
     import pandas as pd
     from src import baselines, counter, preprocess
@@ -275,7 +265,7 @@ def compare(args):
     model = UNet(width=checkpoint["width"]).to(device)
     model.load_state_dict(checkpoint["state_dict"])
 
-    # Same split as training (same seed, same record order), but labelled by people.
+    # 与训练时同样的划分，同一种子、同样的顺序，但用人工标注。
     truth_records = build_records(supervision="human")
     _, _, test_set = split_records(truth_records, seed=checkpoint["seed"])
     print(f"测试集 {len(test_set)} 张（训练时未见过），真值为人工标注 / 合成真值")
@@ -288,8 +278,7 @@ def compare(args):
     rows = []
     for path, points, dataset, file_name in test_set:
         image = io_utils.imread(path)
-        # B1 shares this binarisation with the proposed method, so the two differ only in
-        # how they handle touching grains - which is what the comparison is about.
+        # B1 与方法一用同一个二值图，两者只差在怎么处理粘连，这正是要比较的。
         pre = preprocess.preprocess(image)
         row = {"dataset": dataset, "file_name": file_name, "truth": float(len(points)),
                "student": predict_count(model, image, device),

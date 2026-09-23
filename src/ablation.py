@@ -1,7 +1,6 @@
-"""Ablations for ASW-SPC. Each entry disables one design decision and reports the cost.
+"""方法一的消融实验，每项去掉一个设计，看误差变化。
 
-The preprocessing stage dominates runtime, so ablations that only change the counting
-stage reuse the cached masks; the two that change binarisation re-run it on D1 and D2 only.
+预处理最费时，只改计数阶段的消融复用缓存的掩膜，改二值化的几项重新预处理。
 """
 import argparse
 from contextlib import contextmanager
@@ -37,7 +36,7 @@ def mae(items, **count_kwargs):
 
 
 def _fixed_scale_mae(items):
-    """Replace the per-image A0 with the dataset mean, keeping everything else."""
+    """把逐图标定的 A0 换成整个数据集的平均值，其余不变。"""
     mean_a0 = float(np.mean([it["pre"]["calib"]["a0"] for it in items]))
     errs = []
     for it in items:
@@ -52,7 +51,7 @@ def _fixed_scale_mae(items):
 
 
 def _no_correction_mae(items):
-    """Count raw watershed regions: no fragment merging, no concavity-gated area accounting."""
+    """直接数分水岭的区域，不合并碎片，也不按面积补数。"""
     with patched(correct, FRAGMENT_RATIO=0.0, RESIDUAL_RATIO=float("inf")):
         return mae(items, fragment_ratio=0.0, residual_ratio=float("inf"))
 
@@ -77,7 +76,7 @@ def counting_ablations(data):
         record("foreign rejection without the width test", lambda items: mae(items))
 
     def coin_only_foreign(component, calib):
-        """The foreign test as first written: convex AND rounder than a grain."""
+        """最初的异物判据，要求既凸又比米粒圆。"""
         return (component["area"] > segment.FOREIGN_AREA_RATIO * calib["a0"]
                 and component["solidity"] >= calib["solidity0"]
                 and component["axis_ratio"] < 0.8 * calib["axis_ratio0"])
@@ -86,8 +85,7 @@ def counting_ablations(data):
         record("foreign test also requiring roundness", lambda items: mae(items))
 
     def width_excess_below_4_5px(component, calib):
-        """The touching test as it stood before: below 4.5 px of grain width, concavity was
-        replaced by the width excess, with a threshold of 1.5."""
+        """以前的粘连判据，粒宽不足 4.5 像素时用 width_excess > 1.5 代替凸实度。"""
         if component["area"] <= segment.TOUCH_AREA_RATIO * calib["a0"]:
             return False
         if calib["minor0"] < 4.5:
@@ -133,16 +131,15 @@ def counting_ablations(data):
 
 
 def binarisation_ablations():
-    """Re-run preprocessing with a reduced candidate grid."""
+    """缩小候选范围后重新预处理。"""
     rows = []
     loaders = {"d1": io_utils.load_d1, "d2": synth.load_d2}
 
-    # The one-sided-priors variant is the state before the upper bounds were added; it is
-    # run on D3, where it is the failure the bounds were introduced for.
+    # 只设下限的变体是加上限之前的状态，在 D3 上跑，上限就是为 D3 的失败加的。
     loaders["d3"] = io_utils.load_d3
     variants = {
         "full candidate grid": (dict(channel_names=("gray", "hsv_s")), BINARISATION_SETS),
-        # D3 too: that is the set the saturation channel is kept for.
+        # 也跑 D3，保留饱和度通道就是为了它。
         "gray channel only": (dict(channel_names=("gray",)), BINARISATION_SETS + ("d3",)),
         "with 3x3 median filter":
             (dict(channel_names=("gray", "hsv_s"), median_ksize=3), BINARISATION_SETS),
@@ -152,7 +149,7 @@ def binarisation_ablations():
     variants["no post-removal re-validation"] = (dict(channel_names=("gray", "hsv_s")), ("d3",))
 
     def top_candidate_only(image, **kwargs):
-        """Accept the highest-scoring candidate outright, as the stage first did."""
+        """直接取分数最高的候选，最初就是这样做的。"""
         best = None
         for cand in preprocess.candidate_masks(image, **kwargs):
             calib = preprocess.score_candidate(cand, image.shape)

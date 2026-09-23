@@ -8,11 +8,9 @@ CONCAVITY_MARGIN = 0.03
 
 
 def merge_fragments(labels, a0, fragment_ratio=FRAGMENT_RATIO):
-    """Absorb sub-regions too small to be a grain into the neighbour they share most border with.
+    """太小、不像一粒米的子区域，并入与它共享边界最长的邻居。
 
-    The watershed answers "where might a cut go", not "was the cut real". A sliver carved off
-    a grain boundary is returned to the region it came from, which conserves area instead of
-    discarding it.
+    分水岭只管"哪里可以切"，不管"切得对不对"。从米粒边上削下来的小片还回原区域，面积不丢。
     """
     out = labels.copy()
     regions = {r.label: r for r in regionprops(out)}
@@ -37,12 +35,10 @@ def merge_fragments(labels, a0, fragment_ratio=FRAGMENT_RATIO):
 
 def count_regions(labels, a0, solidity0=None, residual_ratio=RESIDUAL_RATIO,
                   fragment_ratio=FRAGMENT_RATIO, solidity_margin=CONCAVITY_MARGIN):
-    """Count grains in a segmented region set.
+    """数分割后各区域的粒数。
 
-    An oversized region is only re-counted by area when it is also concave relative to the
-    single-grain prior. Grains that merged without the watershed finding the neck stay
-    concave, whereas a merely large single grain is as convex as any other, so this keeps
-    area accounting from doubling grains that are simply above the modal size.
+    过大的区域只有同时比单粒明显更凹时才按面积折算粒数。分水岭没找到颈部的粘连块仍然是凹的，
+    个头大的单粒却和别的单粒一样凸，这样不会把偏大的单粒算成两粒。
     """
     total = 0
     details = []
@@ -63,7 +59,7 @@ def count_regions(labels, a0, solidity0=None, residual_ratio=RESIDUAL_RATIO,
 
 def correct_cluster(labels, a0, solidity0=None, residual_ratio=RESIDUAL_RATIO,
                     fragment_ratio=FRAGMENT_RATIO):
-    """`a0` must already be expressed in the same domain as `labels` (see segment scaling)."""
+    """a0 要和 labels 在同一尺度下，见 segment 里的缩放。"""
     merged = merge_fragments(labels, a0, fragment_ratio=fragment_ratio)
     count, details = count_regions(
         merged, a0, solidity0=solidity0, residual_ratio=residual_ratio,
@@ -74,12 +70,11 @@ def correct_cluster(labels, a0, solidity0=None, residual_ratio=RESIDUAL_RATIO,
 
 def resplit_residuals(merged, details, a0, minor0, solidity0=None,
                       residual_ratio=RESIDUAL_RATIO, fragment_ratio=FRAGMENT_RATIO):
-    """Turn "counted by area" into an actual cut wherever the cut looks like grains.
+    """把"按面积算作 n 粒"的区域真正切成 n 块。
 
-    A region the watershed left whole is counted as round(area / A0) grains. That count is
-    usually right, but the drawing then shows several grains as one. Here each such region is
-    cut into that many pieces; the cut is kept only if every piece is at least a fragment's
-    size and none is itself still an oversized concave region, otherwise the area count stands.
+    分水岭没切开的区域按 round(面积 / A0) 计数，数目通常是对的，但画出来几粒米是一整块。
+    这里按粒数再切一次，每块都不小于碎屑门限、也不超过 RESIDUAL_RATIO 倍 A0 才保留，
+    否则仍按面积计数。
     """
     from src import segment
 

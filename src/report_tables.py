@@ -1,7 +1,6 @@
-"""Emit LaTeX tabular fragments from the metrics CSVs.
+"""从指标 CSV 生成 LaTeX 表格片段。
 
-The report inputs these fragments, so regenerating the experiments updates the numbers in
-the document instead of leaving hand-copied values to go stale.
+报告直接引入这些片段，重跑实验后表里的数字随之更新，不用手抄。
 """
 import numpy as np
 import pandas as pd
@@ -67,11 +66,8 @@ def comparison_table():
     if sam3_path.exists():
         summary = pd.concat([summary, pd.read_csv(sam3_path)], ignore_index=True)
 
-    # B5's disc radius has no setting that serves every grain size, so quoting one
-    # configuration would understate it. It is given the same treatment as SAM 3's prompt:
-    # the best configuration on each set, which is the strongest case that can be made for
-    # it. That those three cases are three different configurations is the point of its own
-    # table, not something this one should hide by picking a single row.
+    # B5 的圆盘半径没有一个值适用于所有米粒大小，只报一种配置会低估它。
+    # 与 SAM 3 的提示词同样处理，每个数据集取它最好的配置。三个数据集的最好配置各不相同，这在它自己的表里说明。
     b5_path = METRICS_ROOT / "b5_matrix.csv"
     if b5_path.exists():
         matrix = pd.read_csv(b5_path)
@@ -154,8 +150,7 @@ def touching_table():
     return _write("touching.tex", "\n".join(lines))
 
 
-# The rows the report discusses. The other ablations stay in ablation.csv; they probe
-# intermediate designs that the final text no longer describes.
+# 报告里讨论的几行。其余消融留在 ablation.csv，它们检验的中间设计正文已不再描述。
 REPORTED_ABLATIONS = (
     "full method",
     "no self-calibration (A0 = dataset mean)",
@@ -317,7 +312,7 @@ AXIS_LABELS = {
 }
 
 
-# A few representative levels per axis; the full sweep stays in robustness.csv.
+# 每种退化取几个代表档位，完整结果在 robustness.csv。
 REPORTED_LEVELS = {
     "blur": (0.0, 0.2, 0.35, 0.7),
     "noise": (0.0, 20.0, 45.0),
@@ -327,11 +322,9 @@ REPORTED_LEVELS = {
 
 
 def robustness_table():
-    """Mean, median and blow-up count per degradation level.
+    """各退化程度下的均值、中位数和崩溃次数。
 
-    The median and the blow-up count are in the table because the mean alone misdescribes
-    what happens: on three of the four axes nothing happens at all, and on the fourth the
-    mean is moved by a couple of scenes whose binarisation flips.
+    只看均值会误解结果。四种退化里三种基本没影响，第四种的均值是被一两个二值化翻转的场景拉高的。
     """
     path = METRICS_ROOT / "robustness.csv"
     if not path.exists():
@@ -365,7 +358,7 @@ def robustness_table():
 
 
 def cost_table():
-    """Time, memory and model size of the proposed method against SAM 3 on one machine."""
+    """同一台机器上方法一与 SAM 3 的耗时、内存和模型大小。"""
     path = METRICS_ROOT / "cost.csv"
     if not path.exists():
         return None
@@ -376,7 +369,7 @@ def cost_table():
         value = rows.loc[key, col]
         if pd.isna(value):
             return "--"
-        if value < 0.1:        # the student is in milliseconds; two decimals would read 0.00
+        if value < 0.1:  # 学生模型以毫秒计，保留两位小数会显示成 0.00
             return f"{value:.3f}"
         return f"{value:.2f}" if value < 10 else f"{value:.1f}"
 
@@ -429,7 +422,7 @@ def _student_cells(block, methods):
 
 
 def student_table():
-    """Student against the classical pipeline and the teacher, on the held-out images."""
+    """在留出图上比较学生、几何方法和教师。"""
     path = METRICS_ROOT / "student_test.csv"
     if not path.exists():
         return None

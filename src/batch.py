@@ -1,13 +1,10 @@
-"""Count a batch of images in parallel, one image per worker process.
+"""多进程批量计数，每个进程处理一张图。
 
-Counting one image never depends on another, so a batch scales across cores. Each worker is
-pinned to a single thread first, which matters more than the parallelism itself: measured on
-this machine, one image alone occupied 17 cores and ran *slower* for it, because OpenBLAS
-answers the many tiny linear-algebra calls inside the scale calibration with a 20-thread
-pool. Pinning the threads made a single image 1.6x to 1.8x faster on its own, and only then
-does running one image per core add anything.
+各图计数互不相关，可以按核并行。每个进程先限制为单线程，这一步比并行本身更重要。
+在这台机器上实测，单张图会占满 17 个核反而更慢，因为 OpenBLAS 用 20 线程的线程池
+处理标定里大量很小的线性代数调用。限成单线程后单张图快 1.6 到 1.8 倍，之后再按核并行才有意义。
 
-Used as a library (`count_paths`) and as a command line tool:
+可以当库用 count_paths，也可以在命令行运行：
 
     python -m src.batch photos/ --out counts.csv
 """
@@ -30,16 +27,15 @@ _LIMITS = None
 
 
 def pin_threads():
-    """Hold every numeric library in this process to one thread.
+    """把本进程里各数值库限制为单线程。
 
-    Kept in a module global: `threadpool_limits` restores the previous limits when the
-    object it returns is collected, so letting it go out of scope would undo this.
+    threadpool_limits 返回的对象被回收时会恢复原来的限制，所以要存在模块全局变量里。
     """
     global _LIMITS
     cv2.setNumThreads(1)
     try:
         from threadpoolctl import threadpool_limits
-    except ImportError:  # optional; without it BLAS keeps its default thread pool
+    except ImportError:  # 可选依赖，没有时 BLAS 用默认线程池
         return False
     _LIMITS = threadpool_limits(limits=1)
     return True
@@ -52,12 +48,12 @@ def _init_worker():
 def _count_one(path):
     try:
         return str(path), counter.count_rice(io_utils.imread(path)), ""
-    except Exception as exc:  # an unreadable or unusable image must not stop the batch
+    except Exception as exc:  # 一张图读不了或处理不了，不能让整批停下
         return str(path), None, f"{type(exc).__name__}: {exc}"
 
 
 def count_paths(paths, workers=None, chunksize=1, progress=False):
-    """Count every image, returning [(path, count, error), ...] in the order given."""
+    """逐张计数，按输入顺序返回 [(path, count, error), ...]。"""
     paths = [str(p) for p in paths]
     workers = workers or min(len(paths), os.cpu_count() or 1)
     if workers <= 1:

@@ -1,24 +1,13 @@
-"""GPU implementation of the binarisation and calibration stages.
+"""二值化与尺度标定的 GPU 版本。
 
-Profiling the CPU pipeline showed the pixel kernels (Otsu, connected components, distance
-transform) take under 1% of the runtime; almost all of it goes into per-component shape
-measurement, which for a saturation-channel candidate means a convex hull for each of some
-18000 noise blobs. This module therefore does two things at once:
-
-* every per-pixel stage runs on the GPU through CuPy and cuCIM;
-* per-component properties are measured in one batched call, and the expensive ones
-  (convex hull, hence solidity) only for components large enough for any later decision to
-  consult them - nothing below 0.65*A0 is ever asked for its solidity, since the single
-  band starts there and the touching, foreign and correction rules all start higher.
-
-The watershed itself stays on the CPU: cuCIM has no GPU watershed, and it runs on small
-cropped clusters where a GPU launch would cost more than the work. The selection logic
-(scoring, plausibility) is reused unchanged from the CPU path - it is arithmetic on a
-handful of scalars.
-
-Numbers differ from the CPU path in two known ways, both measured rather than assumed:
-OpenCV's distance transform is an approximation while `distance_transform_edt` is exact,
-and the HSV saturation channel is rebuilt here in CuPy rather than by `cv2.cvtColor`.
+对 CPU 版做过性能剖析，Otsu、连通域、距离变换这些像素运算不到 1%，
+时间几乎都花在逐个连通域算形状上，饱和度通道的候选要给约一万八千个噪点各算一次凸包。
+所以这里像素运算用 CuPy 和 cuCIM 放到 GPU 上，连通域属性一次批量算，
+凸包只给面积够大、后面可能用到凸实度的连通域算。
+分水岭仍在 CPU 上做，cuCIM 没有 GPU 分水岭，而且它处理的是裁出来的小块，不值得上 GPU。
+打分和合理性检查直接复用 CPU 版。
+与 CPU 版的已知差别有两处，都实测过。OpenCV 的距离变换是近似的，
+distance_transform_edt 是精确的；HSV 饱和度是这里用 CuPy 重算的，不是 cv2.cvtColor。
 """
 import cv2
 import numpy as np
@@ -29,7 +18,7 @@ _MODULES = {}
 
 
 def _gpu():
-    """Import the GPU stack on first use, so importing this module never needs a GPU."""
+    """第一次用到时才导入 GPU 库，导入本模块不需要显卡。"""
     if not _MODULES:
         import cupy as cp
         import cupyx.scipy.ndimage as cndi
@@ -44,15 +33,14 @@ def _gpu():
     return _MODULES
 
 
-# cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+# 即 cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
 ELLIPSE3 = np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]], dtype=bool)
 
 
 def channels_gpu(img_bgr):
-    """Grey and HSV-saturation channels, built on the GPU.
+    """在 GPU 上算灰度和 HSV 饱和度通道。
 
-    Both follow OpenCV's integer definitions (BT.601 grey, S = (V - min) / V) so the
-    thresholds land on the same values as the CPU path.
+    按 OpenCV 的整数定义算（BT.601 灰度，S = (V - min) / V），阈值与 CPU 版落在同样的值上。
     """
     g = _gpu()
     cp = g["cp"]
@@ -67,7 +55,7 @@ def channels_gpu(img_bgr):
 
 
 def otsu_separability_gpu(channel):
-    """Otsu threshold and separability, computed from a GPU histogram."""
+    """用 GPU 直方图算 Otsu 阈值和可分性。"""
     g = _gpu()
     cp = g["cp"]
     hist = cp.bincount(channel.ravel(), minlength=256).astype(cp.float64)
@@ -92,7 +80,7 @@ def clean_mask_gpu(mask_bool):
 
 
 def candidate_masks_gpu(img_bgr, channel_names=preprocess.DEFAULT_CHANNELS):
-    """Same candidate grid as the CPU path: channel x {2,3}-class Otsu x polarity."""
+    """与 CPU 版相同的候选，通道 x 二类/三类 Otsu x 前景取亮或取暗。"""
     g = _gpu()
     out = []
     for name, ch in channels_gpu(img_bgr).items():
@@ -115,18 +103,12 @@ def candidate_masks_gpu(img_bgr, channel_names=preprocess.DEFAULT_CHANNELS):
 
 
 def component_table_gpu(mask_bool, solidity_from=None, solidity_limit=None):
-    """Per-component properties in one batched call.
+    """一次批量算出各连通域的属性。
 
-    `solidity_from` is an area threshold: convex hulls, which dominate the cost and which
-    cuCIM still computes on the host one object at a time, are built only for components at
-    or above it. `None` skips them entirely. Components without one are returned with
-    solidity NaN, which is safe because every rule that reads solidity first requires a
-    larger area than the threshold used here.
-
-    `solidity_limit` caps how many hulls are built. It is used while scoring candidates,
-    where solidity is only consumed as a median over the single band: a noise candidate
-    calibrates A0 to a speck, so "at least 0.65*A0" would still cover every one of its
-    tens of thousands of blobs. The candidate that is finally chosen is measured exactly.
+    solidity_from 是面积门限，只给不小于它的连通域算凸包，None 表示都不算，没算的凸实度为 NaN。
+    凸包最费时，cuCIM 也还是在主机上逐个算。
+    solidity_limit 限制最多算多少个凸包，用于候选打分，那时凸实度只取单粒带内的中位数；
+    噪点候选的 A0 会被标到噪点大小，"不小于 0.65 A0"仍会包括上万个噪点。最终选中的候选会完整地算。
     """
     g = _gpu()
     cp = g["cp"]
@@ -144,9 +126,7 @@ def component_table_gpu(mask_bool, solidity_from=None, solidity_limit=None):
     minor = cp.asnumpy(props["axis_minor_length"]).astype(np.float64)
     bbox = np.stack([cp.asnumpy(props[f"bbox-{i}"]) for i in range(4)], axis=1)
 
-    # Width = twice the largest inscribed-disc radius. One transform over the whole mask
-    # gives the same per-region maximum as transforming each region alone, because regions
-    # are separated by background.
+    # 宽度 = 最大内切圆半径的两倍。区域之间隔着背景，整张做一次距离变换即可。
     dist = g["cndi"].distance_transform_edt(mask_bool)
     width = 2.0 * cp.asnumpy(
         g["cndi"].maximum(dist, labels=labels, index=cp.asarray(label_ids))
@@ -155,12 +135,11 @@ def component_table_gpu(mask_bool, solidity_from=None, solidity_limit=None):
     solidity = np.full(areas.shape, np.nan)
     wanted = areas >= solidity_from if solidity_from is not None else np.zeros(areas.shape, bool)
     if wanted.any():
-        # Relabel the kept components compactly first. cuCIM walks labels 1..max, so simply
-        # zeroing the small ones would leave thousands of empty labels behind and it would
-        # build a convex hull for every one of them.
+        # 先把保留的连通域紧凑地重新编号。cuCIM 会遍历 1..max 的所有标号，
+        # 只把小块置零会留下几千个空号，每个都要算一次凸包。
         chosen_idx = np.flatnonzero(wanted)
         if solidity_limit is not None and chosen_idx.size > solidity_limit:
-            # Evenly spaced in area order: a deterministic sample of the same population.
+            # 按面积排序后等间隔抽样，结果是确定的。
             order = chosen_idx[np.argsort(areas[chosen_idx], kind="stable")]
             chosen_idx = np.sort(order[np.linspace(0, order.size - 1, solidity_limit).astype(int)])
         keep = cp.asarray(label_ids[chosen_idx])
@@ -186,20 +165,19 @@ def component_table_gpu(mask_bool, solidity_from=None, solidity_limit=None):
 
 
 def calibrate_gpu(mask_bool, need_solidity=True):
-    """Scale and shape priors, with A0 estimated from areas alone (no hulls needed).
+    """尺度与形状先验，A0 只用面积估计。
 
-    `need_solidity=False` skips the convex hulls altogether. Candidates are ranked by a
-    score that does not use solidity, and the gate that does is applied afterwards in score
-    order, so hulls are built only for candidates that actually reach it.
+    need_solidity=False 时不算凸包。候选按不含凸实度的分数排序，
+    需要凸实度的检查按分数顺序后做，只有真正轮到的候选才算凸包。
     """
-    # First pass: areas only. A0 comes from the area distribution, so no hulls are needed.
+    # 第一遍只要面积，A0 由面积分布得到，不需要凸包。
     labels, rows = component_table_gpu(mask_bool)
     if not rows:
         raise ValueError("no foreground components")
     areas = np.array([r["area"] for r in rows])
     a0, _ = calibrate.estimate_single_area(areas)
 
-    # Now A0 is known, measure solidity only where a later rule could ask for it.
+    # A0 有了，只在后面可能用到凸实度的地方算。
     labels, rows = component_table_gpu(
         mask_bool,
         solidity_from=calibrate.SHAPE_FLOOR_RATIO * a0 if need_solidity else None)
@@ -222,7 +200,7 @@ def calibrate_gpu(mask_bool, need_solidity=True):
 
 
 def local_contrast_gpu(channel, mask_bool):
-    """Centre-surround contrast, with both dilations done on the GPU."""
+    """中心与周边的对比度，两次膨胀都在 GPU 上做。"""
     g = _gpu()
     cp = g["cp"]
     if not bool(mask_bool.any()):
@@ -237,7 +215,7 @@ def local_contrast_gpu(channel, mask_bool):
 
 
 def _drop_by_label(mask_bool, labels, drop_ids):
-    """Zero whole components by label, without a Python loop over components."""
+    """按标号整块置零，不对连通域写 Python 循环。"""
     g = _gpu()
     cp = g["cp"]
     if len(drop_ids) == 0:
@@ -246,7 +224,7 @@ def _drop_by_label(mask_bool, labels, drop_ids):
 
 
 def _clean_selected(mask_bool, calib, a0):
-    """Substrate and speck removal, vectorised over components."""
+    """去衬底和碎点，按连通域向量化处理。"""
     g = _gpu()
     cp = g["cp"]
     labels = calib["labels"]
@@ -261,7 +239,7 @@ def _clean_selected(mask_bool, calib, a0):
 
 
 def preprocess_gpu(img_bgr, channel_names=preprocess.DEFAULT_CHANNELS):
-    """GPU version of `preprocess.preprocess`, returning the same dictionary shape."""
+    """preprocess.preprocess 的 GPU 版，返回相同结构的字典。"""
     g = _gpu()
     cp = g["cp"]
 
@@ -296,8 +274,7 @@ def preprocess_gpu(img_bgr, channel_names=preprocess.DEFAULT_CHANNELS):
         except ValueError:
             continue
         if preprocess.plausible_grain_population(final, img_bgr.shape):
-            # The counting stage works on small cropped clusters, so the chosen mask and
-            # its labels come back to the host once, here.
+            # 计数阶段处理裁出的小块，选中的掩膜和标号在这里一次拷回主机。
             final["labels"] = cp.asnumpy(final["labels"]).astype(np.int32)
             host_mask = (cp.asnumpy(mask) > 0).astype(np.uint8) * 255
             return {

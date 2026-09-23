@@ -1,12 +1,8 @@
-"""Render per-image counting results for visual checking.
+"""把每张图的计数结果画出来，便于肉眼检查。
 
-Each counted instance is filled with a translucent colour and outlined in the same colour,
-so one grain reads as one coloured blob while its texture still shows through. Nearby
-instances are given different colours by greedy graph colouring so that a boundary
-between two touching grains is unambiguous. Where the method attributed
-several grains to one region by area rather than by an actual cut, the region is marked
-with a dashed box and a multiplier, so the region count and the reported count can be
-reconciled by eye.
+每个计数实例用半透明色填充并描同色边，一粒米是一块颜色，米粒纹理仍能看到。
+相邻实例用贪心图着色分配不同颜色，两粒粘连米粒之间的分界一看就清楚。
+没有真正切开、按面积算作几粒的区域画虚线框并标倍数，区域数与报告的粒数可以对上。
 """
 import argparse
 
@@ -19,8 +15,7 @@ from src.io_utils import RESULTS_ROOT, ensure_dir
 
 RENDER_ROOT = RESULTS_ROOT / "renders"
 
-# Bright, mutually distinct, readable on both dark and light backgrounds (BGR order).
-# Ten hues rather than eight, so a dense cluster does not fall back to repeating colours.
+# 颜色鲜明、彼此好区分，深色浅色背景上都看得清，BGR 顺序。用十种而不是八种，密集的块不容易重色。
 PALETTE = [
     (66, 220, 66), (255, 96, 96), (80, 160, 255), (255, 220, 60),
     (255, 120, 255), (60, 235, 235), (255, 160, 40), (170, 130, 255),
@@ -31,7 +26,7 @@ FOREIGN_COLOUR = (190, 190, 190)
 
 
 def neighbour_graph(regions, reach=2.2):
-    """Link instances whose centroids lie within `reach` times their mean size."""
+    """质心距离在 reach 倍平均尺寸以内的实例之间连边。"""
     centroids = np.array([r["centroid"] for r in regions], dtype=np.float64)
     sizes = np.array([max(r["major"], 4.0) for r in regions], dtype=np.float64)
     graph = {i: set() for i in range(len(regions))}
@@ -48,12 +43,10 @@ def neighbour_graph(regions, reach=2.2):
 
 
 def greedy_colours(graph, n_colours=len(PALETTE)):
-    """Assign each instance a colour different from its neighbours (Welsh-Powell order).
+    """给每个实例分配与邻居不同的颜色，按 Welsh-Powell 顺序。
 
-    Each node starts its search at a different colour. Always starting from the first one
-    would paint every isolated grain the same colour, and a scene of mostly separate grains
-    would come out almost uniformly green; rotating the start spreads the palette evenly
-    while neighbours still never share a colour.
+    每个节点从不同的颜色开始找。都从第一种开始的话，孤立的米粒全是同一种颜色，
+    米粒大多分开的图会几乎一片绿。轮换起点能让颜色铺开，相邻的仍不会同色。
     """
     order = sorted(graph, key=lambda k: -len(graph[k]))
     assigned = {}
@@ -71,7 +64,7 @@ def greedy_colours(graph, n_colours=len(PALETTE)):
 
 
 def _banner(canvas, lines):
-    """Caption strip sized to the image, so it stays legible on a 224 px thumbnail."""
+    """按图像大小画标题条，224 像素的小图上也看得清。"""
     longest = max(len(text) for text in lines)
     scale = min(0.55, canvas.shape[1] / (longest * 20.0))
     pad = max(3, int(6 * scale / 0.55))
@@ -140,15 +133,14 @@ def draw(image_bgr, labels, info, banner_lines, thickness=1):
             cv2.putText(canvas, f"x{region['count']}", (c0, max(10, r0 - 3)),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, colour, 1, cv2.LINE_AA)
 
-    # No banner when the caller supplies none: figures in the report carry the counts in
-    # their own captions, in Chinese, which OpenCV cannot draw.
+    # 调用方没给标题就不画。报告里的图把粒数写在中文图题里，OpenCV 画不了中文。
     if banner_lines:
         _banner(canvas, banner_lines)
     return canvas
 
 
 def masks_to_labels(masks, shape):
-    """Stack instance masks into one label image; earlier (higher-scoring) masks win."""
+    """把实例掩膜叠成一张标号图，排在前面、得分高的掩膜优先。"""
     labels = np.zeros(shape, dtype=np.int32)
     for index, mask in enumerate(masks, start=1):
         binary = np.asarray(mask).astype(bool)

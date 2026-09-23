@@ -1,11 +1,8 @@
-"""SAM 3 as a deep-learning reference point.
+"""SAM 3，作为深度学习的参照。
 
-The model is prompted with a text concept and returns one instance mask per detected
-object, so the count is simply the number of instances that clear the score threshold.
-It is used two ways: as a modern comparison for the classical method, and as a source of
-pseudo ground truth for images that carry no manual annotation. The second use is only
-defensible once the teacher's own error has been measured against human labels, which is
-what `validate_on_d1` does.
+用文本概念提示模型，它对每个检测到的物体返回一个实例掩膜，粒数就是得分过门限的实例数。
+它有两个用途，一是和几何方法对比，二是给没有人工标注的图生成伪标签。
+第二种用法要先在人工标注上量出教师自己的误差才站得住，validate_on_d1 做的就是这个。
 """
 import argparse
 
@@ -28,9 +25,8 @@ class Sam3Teacher:
     def __init__(self, model_id=MODEL_ID, device=None, dtype=torch.bfloat16, local_files_only=True):
         from transformers import Sam3Model, Sam3Processor
 
-        # Load straight from the local cache: the weights are already there, and a Hub
-        # round-trip would go through the machine's SOCKS proxy, which the HTTP client
-        # underneath transformers cannot parse.
+        # 直接从本地缓存加载。权重已经在本地，走 Hub 会经过本机的 SOCKS 代理，
+        # transformers 底层的 HTTP 客户端解析不了。
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         self.processor = Sam3Processor.from_pretrained(model_id, local_files_only=local_files_only)
         self.model = (
@@ -54,7 +50,7 @@ class Sam3Teacher:
 
 
 def validate_on_d1(teacher, thresholds=(0.2, 0.3, 0.4, 0.5), prompt=PROMPT, limit=None):
-    """Measure the teacher against human COCO annotations before trusting it elsewhere."""
+    """先在 D1 的人工标注上衡量教师，再在别处使用。"""
     samples = io_utils.load_d1()[:limit]
 
     scores_per_image = []
@@ -82,9 +78,9 @@ def validate_on_d1(teacher, thresholds=(0.2, 0.3, 0.4, 0.5), prompt=PROMPT, limi
 
 
 def score_dataset(teacher, samples, prompt, floor=0.05):
-    """Run the teacher once per image and keep the raw instance scores.
+    """每张图只跑一次教师，保存原始实例得分。
 
-    Counts for any threshold above `floor` are then obtained without re-running the model.
+    之后任何高于 floor 的门限都能直接算出粒数，不用重跑模型。
     """
     out = []
     for sample in samples:
@@ -120,11 +116,10 @@ def sweep(scored, thresholds):
 
 
 def prompt_matrix(teacher, loaders, prompts, thresholds, limits=None):
-    """Best achievable MAE for each prompt on each dataset.
+    """每个提示词在每个数据集上能达到的最好 MAE。
 
-    Reported because the winning prompt turns out not to transfer between datasets: the
-    phrase that is best on the photographs detects nothing on the composites, and picking
-    the phrase requires labels, which is the very thing a zero-shot model should avoid.
+    最好的提示词在数据集之间不通用，在照片上最好的短语在合成图上什么也检测不到。
+    挑提示词需要标注，而零样本模型本应不依赖标注。
     """
     limits = limits or {}
     rows = []
@@ -171,7 +166,7 @@ def main():
         print(f"\nwrote {METRICS_ROOT / 'sam3_prompt_matrix.csv'}")
         return
 
-    # Calibrate prompt and threshold against the human annotations of D1 only.
+    # 只用 D1 的人工标注选提示词和门限。
     calibration = []
     for prompt in args.prompts:
         table = sweep(score_dataset(teacher, io_utils.load_d1(), prompt), args.thresholds)

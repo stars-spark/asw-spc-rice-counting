@@ -22,7 +22,7 @@ MEDIAN_OPTIONS = (MEDIAN_KSIZE,)
 
 
 def otsu_separability(channel):
-    """Otsu threshold plus its separability measure eta = sigma_b^2 / sigma_total^2."""
+    """Otsu 阈值及可分性 eta = 类间方差 / 总方差。"""
     hist = cv2.calcHist([channel], [0], None, [256], [0, 256]).ravel()
     p = hist / (hist.sum() + EPS)
     levels = np.arange(256, dtype=np.float64)
@@ -62,14 +62,11 @@ def clean_mask(mask, ksize=3):
 
 
 def candidate_masks(img_bgr, channel_names=None, ksize=3, median_ksize=None):
-    """Candidates: channel x denoising x {2-class Otsu, 3-class Otsu} x foreground polarity.
+    """生成候选二值图，通道 x 中值滤波 x 二类/三类 Otsu x 前景取亮或取暗。
 
-    The scene may hold more than two grey levels (table / substrate / grains), so a plain
-    two-class split is not always the right model; the polarity is likewise scene dependent.
-    Median denoising is available on this axis but disabled by default: it was added to
-    suppress the speck fields that saturation channels produce, a job the contrast term of
-    the selection score now does, and it erodes grains only a few pixels wide. Letting the
-    selector choose per image was measured too and came out worse than simply leaving it off.
+    画面里可能有桌面、衬底、米粒三种灰度，二类分割不一定合适，前景取亮取暗也看场景。
+    中值滤波默认关闭。它原本用来压饱和度通道的噪点，现在选择分数里的对比度项已经能做到，
+    而且它会腐蚀只有几像素宽的米粒。试过让程序逐图决定开不开，结果不如直接关掉。
     """
     median_options = MEDIAN_OPTIONS if median_ksize is None else (median_ksize,)
 
@@ -110,14 +107,10 @@ def candidate_masks(img_bgr, channel_names=None, ksize=3, median_ksize=None):
 
 
 def local_contrast(channel, mask):
-    """Centre-surround saliency: the normalised intensity gap between the foreground and
-    the ring just outside it.
+    """前景与紧贴它外面一圈的灰度差，按全图标准差归一化。
 
-    This is the centre-surround contrast that visual attention models use to decide what in
-    a scene is an object at all, applied here to a whole candidate segmentation rather than
-    to a point. A real grain is an object: it stands out from the background it sits on.
-    Noise that survives thresholding as speck fields does not, which is what separates the
-    two when the speck count alone would otherwise win the vote.
+    真米粒比周围背景明显亮或暗，阈值后残留的噪点一片则不会，
+    只比个数时噪点候选可能胜出，加上这一项就能分开。
     """
     fg = mask > 0
     if not fg.any():
@@ -132,17 +125,13 @@ def local_contrast(channel, mask):
 
 
 def plausible_grain_population(calib, frame_shape, check_solidity=True):
-    """Do the calibrated priors describe rice at all?
+    """标定出的单粒参数像不像米粒。
 
-    Every test is two-sided. A one-sided prior can only reject one way of being wrong, and
-    each of these was reached by a candidate that satisfied the lower bound and was absurd
-    above it: a mask of the wooden frame bars passed "rice is elongated" with an axis ratio
-    of 25, and passed "grains are many" with three blobs each covering three per cent of a
-    224-pixel frame and running longer than the frame is wide.
+    每项都有上下限。只设下限时，木框条的掩膜以长宽比 25 通过了"米粒是细长的"，
+    三块各占 224 像素画面百分之三、比画面还长的区域也通过了"米粒很多"。
     """
     if calib["n_singles"] < MIN_SINGLES:
-        # A repeated unit cannot be established from one or two blobs: without this a
-        # candidate that segments the substrate as one huge region scores highest.
+        # 一两个块定不出单粒尺度。没有这条的话，把衬底分成一整块的候选分数最高。
         return False
     if not MIN_AXIS_RATIO <= calib["axis_ratio0"] <= MAX_AXIS_RATIO:
         return False
@@ -158,23 +147,20 @@ def plausible_grain_population(calib, frame_shape, check_solidity=True):
 
 
 def score_candidate(cand, frame_shape):
-    """Foreground area explained by mutually consistent single-grain blobs.
+    """候选的分数，即能解释为单粒米的前景面积，再乘对比度。
 
-    A rice scene is many similar-sized blobs covering a minority of the frame, so a
-    candidate is rewarded for the area it explains as single grains: it penalises both
-    substrate blobs (few huge regions) and texture noise (many tiny regions).
+    米粒图是很多大小相近的小块，只占画面一部分。按单粒能解释的面积打分，
+    衬底那种少数大块和纹理噪点那种大量碎块都拿不到高分。
     """
     mask = cand["mask"]
-    # The substrate (table, cloth) runs off the frame while grains sit inside it, so the
-    # coverage guard ignores border-connected regions; the mask itself keeps them.
+    # 衬底会延伸出画面，米粒在画面内，所以覆盖率只统计不连边框的区域，掩膜本身不删。
     interior = clear_border(mask > 0)
     coverage = float(interior.mean())
     if coverage > MAX_COVERAGE or coverage <= 0:
         return None
 
-    # No convex hulls here: the score below does not use solidity, and the gate that does is
-    # applied later, to candidates taken in score order, so hulls are built only until one
-    # of them passes. A speck field scores badly on contrast and never gets that far.
+    # 这里不算凸包。分数不用凸实度，用到它的检查放在后面，按分数从高到低逐个做，
+    # 通过一个就停，噪点候选对比度低，排不到前面。
     try:
         calib = calibrate.calibrate(mask, need_solidity=False)
     except ValueError:
@@ -190,10 +176,9 @@ def score_candidate(cand, frame_shape):
 
 
 def drop_substrate(mask, a0):
-    """Remove regions that are both frame-connected and far too large to be a grain cluster.
+    """去掉既连着图像边框、又大得不像米堆的区域，即桌面或布。
 
-    Requiring both signals keeps a legitimate dense cluster in the middle of the frame and
-    keeps grains that merely graze the border, while discarding table/cloth regions.
+    两个条件同时满足才去掉，画面中间密集的米堆和擦到边框的米粒都会保留。
     """
     labels = label(mask > 0)
     out = mask.copy()
@@ -205,7 +190,7 @@ def drop_substrate(mask, a0):
 
 
 def remove_specks(mask, a0):
-    """Drop components too small to be a grain, measured against the calibrated scale."""
+    """按标定的单粒面积去掉太小的碎点。"""
     labels = label(mask > 0)
     out = mask.copy()
     for region in regionprops(labels):
@@ -215,18 +200,12 @@ def remove_specks(mask, a0):
 
 
 def bright_background(img_bgr, mask):
-    """Background pixels far brighter than the surface the grains lie on.
+    """背景中比放米平面亮得多的像素。
 
-    Grains lie on one surface, but a photograph often also holds the edge of whatever is
-    beyond it - the wooden frame in the low-resolution set, the wall behind the paper in
-    the real photographs. Glints along that edge are grain-sized and grain-shaped, so no
-    shape test can reject them; what gives them away is that one side of them is bright.
-
-    The background is split into its dark mode and the rest by Otsu, but when the whole
-    background is one dark surface Otsu still splits it, down the middle of its noise. So a
-    pixel also has to be brighter than halfway from that dark surface to the grains, which
-    no shade of one surface is. Each condition alone fails on one data set; together they
-    mark the frame and the wall and nothing else.
+    照片里除了放米的平面，常还拍到它外面的东西，D3 是木框，D1 是纸后面的墙。
+    这些边缘上的反光大小形状和米粒差不多，形状判据去不掉，但它们总有一侧是亮的。
+    先用 Otsu 把背景分成暗的一类和其余；背景整片都暗时 Otsu 仍会从噪声中间切一刀，
+    所以还要求比"暗背景与米粒灰度的中点"更亮。两个条件单用各在一个数据集上出错，合起来只标出木框和墙。
     """
     gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
     fg = mask > 0
@@ -242,7 +221,7 @@ def bright_background(img_bgr, mask):
 
 
 def preprocess(img_bgr, channel_names=DEFAULT_CHANNELS, ksize=3, median_ksize=None):
-    """Pick the binarisation whose components look most like a field of single grains."""
+    """在各候选二值图中选出最像一片单粒米的那个。"""
     scored = []
     for cand in candidate_masks(img_bgr, channel_names=channel_names, ksize=ksize, median_ksize=median_ksize):
         calib = score_candidate(cand, img_bgr.shape)
@@ -252,18 +231,15 @@ def preprocess(img_bgr, channel_names=DEFAULT_CHANNELS, ksize=3, median_ksize=No
     if not scored:
         raise ValueError("no usable binarisation candidate")
 
-    # Substrate removal can change the picture enough to invalidate the priors the
-    # candidate was selected on, so the survivor is re-checked and the ranking falls
-    # through to the next candidate rather than accepting whatever came out.
+    # 去掉衬底后画面可能变了，所以要重新检查，不合格就换下一个候选。
     chosen = None
     for cand, ranked in sorted(scored, key=lambda pair: -pair[1]["score"]):
-        # Now measure the hulls this candidate needs and apply the gate that uses them.
+        # 这时才给这个候选算凸包，做需要凸实度的检查。
         calib = calibrate.calibrate(cand["mask"])
         if not plausible_grain_population(calib, img_bgr.shape):
             continue
-        # Substrate removal leaves a ragged fringe where the mask straddled the substrate
-        # edge. Those specks are cleared against the scale calibrated before removal;
-        # recalibrating on the fringe instead would collapse A0 onto the debris.
+        # 去衬底会在边缘留下一圈毛刺，用去衬底前标定的尺度清掉。
+        # 如果在毛刺上重新标定，A0 会落到碎屑的大小。
         mask = drop_substrate(cand["mask"], calib["a0"])
         mask = remove_specks(mask, calib["a0"])
         try:

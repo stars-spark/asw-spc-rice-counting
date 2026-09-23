@@ -15,25 +15,23 @@ def _count_labels(labels, a0, min_area_ratio=MIN_AREA_RATIO):
 
 
 def b1_connected_components(calib):
-    """Count every connected component as one grain (ignores touching)."""
+    """B1，每个连通域算一粒，不处理粘连。"""
     cutoff = MIN_AREA_RATIO * calib["a0"]
     return sum(1 for r in calib["components"] if r["area"] >= cutoff)
 
 
 def b2_area_estimate(calib):
-    """Total foreground area divided by the single-grain area."""
+    """B2，前景总面积除以单粒面积。"""
     cutoff = MIN_AREA_RATIO * calib["a0"]
     total = sum(r["area"] for r in calib["components"] if r["area"] >= cutoff)
     return int(np.round(total / calib["a0"]))
 
 
 def b3_distance_watershed(mask, calib, fg_ratio=0.5):
-    """Textbook distance-transform watershed: markers are the pixels above a fixed
-    fraction of the GLOBAL distance maximum (the OpenCV tutorial recipe).
+    """B3，教科书式的距离变换分水岭，即 OpenCV 教程的做法。
 
-    The fixed global threshold is exactly what the adaptive seeding replaces: one large
-    cluster raises the maximum for the whole image and wipes out the markers of every
-    smaller grain.
+    种子取距离值超过全图最大值固定比例的像素。一个大粘连块会抬高全图最大值，
+    较小米粒的种子就被整片抹掉，这正是自适应种子要解决的问题。
     """
     dist = distance_transform(mask)
     if dist.max() <= 0:
@@ -47,11 +45,10 @@ def b3_distance_watershed(mask, calib, fg_ratio=0.5):
 
 
 def b4_erosion_watershed(mask, calib, ksize=3, iterations=1):
-    """Marker-controlled watershed with markers from morphological erosion.
+    """B4，用形态学腐蚀得到种子的标记分水岭。
 
-    This is the pipeline of Kurade et al., Foods 2023 (3x3 structuring element, connected
-    component analysis on the eroded image), the paper that reports removing touching
-    grains from its dataset because this scheme cannot separate them.
+    按 Kurade 等人 2023 年 Foods 论文的流程，3x3 结构元，腐蚀后做连通域分析。
+    该文因为这种做法分不开粘连米粒，把粘连样本从数据集中去掉了。
     """
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (ksize, ksize))
     eroded = cv2.erode((mask > 0).astype(np.uint8), kernel, iterations=iterations)
@@ -64,12 +61,9 @@ def b4_erosion_watershed(mask, calib, ksize=3, iterations=1):
 
 
 def _corner_response(mask, contour, radius):
-    """Corner response of Tan et al.: the foreground fraction of a disc centred on each
-    contour pixel.
+    """Tan 等人的角点响应，即以轮廓点为圆心的圆盘内前景所占比例。
 
-    On a straight stretch of boundary the disc is half inside the region, so the response
-    sits near 0.5; where the boundary turns into the region, as it does at the neck between
-    two touching grains, more of the disc is foreground and the response rises.
+    直边上圆盘一半在区域内，响应约 0.5；两粒米之间的颈部边界向内拐，圆盘内前景更多，响应升高。
     """
     radius = max(int(round(radius)), 2)
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * radius + 1, 2 * radius + 1))
@@ -82,10 +76,9 @@ def _corner_response(mask, contour, radius):
 
 
 def _corner_points(response, radius, threshold=CRF_THRESHOLD):
-    """Indices of response peaks above the threshold, one per neighbourhood.
+    """响应超过门限的峰，每个邻域只取一个。
 
-    The response stays high across the whole neck rather than at a single pixel, so peaks
-    closer together than the disc radius are the same corner and only the strongest is kept.
+    颈部附近一整段响应都高，相距小于圆盘半径的峰看作同一个角点，只留最强的。
     """
     n = len(response)
     if n < 3:
@@ -96,19 +89,16 @@ def _corner_points(response, radius, threshold=CRF_THRESHOLD):
 
     picked = []
     for index in above[np.argsort(-response[above])]:
-        # The contour is a closed curve, so distance along it wraps around.
+        # 轮廓是闭合曲线，沿轮廓的距离要绕回去算。
         if all(min(abs(index - other), n - abs(index - other)) > radius for other in picked):
             picked.append(int(index))
     return sorted(picked)
 
 
 def _ellipse_residual(points):
-    """RMS distance from the points to their best-fitting ellipse, in pixels.
+    """点到其拟合椭圆的均方根距离，单位像素。
 
-    Measured radially: each point is taken along its own ray from the ellipse centre and
-    compared with where the ellipse crosses that ray. A geometric residual is used rather
-    than the algebraic one of the quadratic form, whose value depends on the size of the
-    ellipse and so cannot be compared against a fixed tolerance.
+    沿椭圆中心到各点的射线量径向距离。不用二次型的代数残差，它随椭圆大小变化，没法和固定容差比较。
     """
     if len(points) < 5:
         return None
@@ -130,21 +120,12 @@ def _ellipse_residual(points):
 
 
 def _grains_by_ellipse(contour, corners, grain_width, tolerance=ELLIPSE_MERGE_TOLERANCE):
-    """Group the segments between corners into grains by elliptical approximation.
+    """按椭圆拟合把角点之间的轮廓段归并成米粒。
 
-    Grains are close to elliptical, so the segments of one grain's boundary are the ones a
-    single ellipse explains. The published method searches every partition of the segments
-    for the one of least total fit error, which is combinatorial in their number - the
-    authors report the cost growing rapidly with the grain count - so this baseline merges
-    greedily instead, repeatedly joining the pair whose single fitted ellipse has the lowest
-    residual, and accepting a merge only while that residual stays within a fraction of a
-    grain width. Judging a merge by the absolute quality of its fit rather than by how much
-    the fit worsens is what makes the tolerance mean anything: a pair of short segments can
-    always be fitted perfectly, so a change in residual is near zero either way.
-
-    The centre-distance penalty of the published method, which discourages a partition whose
-    ellipses share a centre, is not reproduced here: it serves to rank competing whole
-    partitions, and this greedy version never holds two of them to compare.
+    原文遍历所有分组找总拟合误差最小的一种，组合数随段数增长很快，作者也说耗时随粒数迅速上升。
+    这里改成贪心合并，每次合并单个椭圆拟合残差最小的一对，残差不超过粒宽的一定比例才合并。
+    判断用拟合残差本身而不是残差的增量，两段短弧总能拟合得很好，增量几乎都是 0。
+    原文防止椭圆共圆心的距离惩罚没有实现，它用于比较整套分组，贪心做法不需要。
     """
     segments = [contour[corners[i]:corners[i + 1] + 1] for i in range(len(corners) - 1)]
     segments.append(np.vstack([contour[corners[-1]:], contour[: corners[0] + 1]]))
@@ -160,8 +141,7 @@ def _grains_by_ellipse(contour, corners, grain_width, tolerance=ELLIPSE_MERGE_TO
                 merged = np.vstack([groups[i], groups[j]])
                 residual = _ellipse_residual(merged)
                 if residual is None:
-                    # Too few points to fit: such a pair is merged before any fitted one,
-                    # since neither piece can be a grain outline on its own.
+                    # 点太少拟合不了，这种对先合并，两段单独都不可能是一粒米的轮廓。
                     residual = 0.0
                 if best is None or residual < best[0]:
                     best = (residual, i, j, merged)
@@ -174,22 +154,12 @@ def _grains_by_ellipse(contour, corners, grain_width, tolerance=ELLIPSE_MERGE_TO
 
 
 def b5_concave_ellipse(mask, calib, use_ellipse=True, radius_ratio=0.5):
-    """Concave-point counting with elliptical correction (Avzalov et al., Vavilov J. 2025).
+    """B5，凹点计数加椭圆修正，按 Avzalov 等人 2025 年 Vavilov 期刊论文。
 
-    Corner points are found on each component's contour with the response above, and the
-    grain count of a contour follows their pairing rule: every two corners mark one contact,
-    so a contour holding k grains carries 2(k-1) of them. Ellipse fitting then regroups the
-    segments between corners, which is how the published method discards corners raised by
-    chipped or dented grains instead of contacts.
-
-    Everything here is measured on the boundary, which is the point of including it: it is
-    the mainstream route for this problem and it is the route whose descriptors are the ones
-    reported to need a minimum number of pixels across the object.
-
-    The disc radius is tied to the calibrated grain width rather than fixed in pixels, so
-    the baseline rescales with the image the same way the method under test does; half a
-    grain width is the geometry the response assumes. It is exposed as a parameter because
-    no one value works at every scale, which is the finding this baseline is here to show.
+    用上面的角点响应在每个连通域轮廓上找角点，按原文的配对规则，每两个角点对应一处接触，
+    含 k 粒的轮廓应有 2(k-1) 个角点。再用椭圆拟合把角点之间的段重新分组，
+    去掉米粒缺口、凹痕产生的假角点。这一类方法都在边界上取特征，是这个问题的主流做法。
+    圆盘半径取标定粒宽的一半，随图像缩放。它做成参数，是因为没有一个值在各尺度都合适。
     """
     radius = max(calib["minor0"] * radius_ratio, 2.0)
     cutoff = MIN_AREA_RATIO * calib["a0"]
