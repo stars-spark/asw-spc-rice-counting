@@ -9,10 +9,10 @@ MIN_DEPTH_PX = 1.0
 SEED_MERGE_RATIO = 0.6
 TOUCH_AREA_RATIO = 1.2
 TOUCH_SOLIDITY_MARGIN = 0.06
-MIN_TRUSTED_MINOR_PX = 4.5
-COARSE_TOUCH_EXCESS = 1.5
 FOREIGN_AREA_RATIO = 3.0
 FOREIGN_WIDTH_RATIO = 2.5
+BRIGHT_RING_FRACTION = 0.2
+DARK_RATIO = 0.5
 
 
 def width_excess(component, calib):
@@ -105,21 +105,77 @@ def is_touching(component, calib):
     grains look concave. Two grains that actually meet are always larger than one and
     always leave a neck.
 
-    Below a few pixels of grain width the boundary is too coarsely sampled for solidity to
-    mean anything - measured dispersion nearly doubles - so the concavity half of the test
-    is handed to the width excess, which asks the same question of the region's area and
-    its thickness instead of its outline. Abstaining there instead, as this stage first
-    did, is wrong in both directions at once: on the fine-grained photographs every genuine
-    cluster is then counted as one grain, and every other large region is counted as one
-    grain too.
+    Concavity is used at every scale. An earlier version handed it, below 4.5 px of grain
+    width, to the width excess on the grounds that solidity stops meaning anything there.
+    Measured on the photographs whose grains are 3.7 to 4.5 px wide, it had not: touching
+    pairs sit at a median of 0.20 below the single-grain solidity and single grains at 0,
+    while the width excess put pairs at 1.22 and singles at 0.98 against a threshold of
+    1.5, so two thirds of the pairs went uncut. On the low-resolution set the width excess
+    also passed convex glints along the frame as clusters, which are then area-counted
+    into several grains; concavity rejects them, since no pile of grains is that convex.
     """
     if component["area"] <= TOUCH_AREA_RATIO * calib["a0"]:
         return False
-
-    if calib["minor0"] < MIN_TRUSTED_MINOR_PX:
-        return width_excess(component, calib) > COARSE_TOUCH_EXCESS
-
     return component["solidity"] < calib["solidity0"] - TOUCH_SOLIDITY_MARGIN
+
+
+def grain_brightness(labels, gray, grain_labels):
+    """Median grey level over the regions taken for grains: what a grain looks like here."""
+    if gray is None or not grain_labels:
+        return None
+    return float(np.median(gray[np.isin(labels, grain_labels)]))
+
+
+def is_dark(component, labels, gray, reference):
+    """True if the region is far darker than the grains of this image.
+
+    When the selected mask is "low saturation", as on most of the low-resolution set, black is
+    as unsaturated as white rice: the shadow strips along the frame and the shadows beside
+    grains come through as regions of grain size and shape. Their grey level gives them
+    away at once - a few per cent of the grains' against 0.9 to 1.1 for the grains
+    themselves. DARK_RATIO was chosen on the real photographs alone, where no annotated
+    grain fell below it.
+    """
+    if gray is None or reference is None:
+        return False
+    r0, c0, r1, c1 = component["bbox"]
+    region = labels[r0:r1, c0:c1] == component["label"]
+    return float(gray[r0:r1, c0:c1][region].mean()) < DARK_RATIO * reference
+
+
+def borders_bright_background(component, calib, bright):
+    """True if the region lies against bright background rather than on the grain surface.
+
+    `bright` is the map from `preprocess.bright_background`. A band around the region, from
+    two pixels out to about two grain widths out, is looked at; skipping the first two
+    pixels keeps a grain's own blurred rim out of it. A grain on its surface has almost
+    none of that band bright, a glint on the frame edge has one whole side of it bright.
+    More than BRIGHT_RING_FRACTION bright marks the second case. That value was chosen on
+    the real photographs alone and left no real grain rejected on any data set.
+    """
+    if bright is None:
+        return False
+    labels = calib["labels"]
+    height, width = labels.shape
+    outer = int(round(2 + 2 * max(calib["minor0"], 1.0))) * 2 + 1
+    r0, c0, r1, c1 = component["bbox"]
+    top, left = max(r0 - outer, 0), max(c0 - outer, 0)
+    bottom, right = min(r1 + outer, height), min(c1 + outer, width)
+    window = labels[top:bottom, left:right]
+    region = (window == component["label"]).astype(np.uint8)
+    near = cv2.dilate(region, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))) > 0
+    # The band lies inside the window and outside `near`. If no bright pixel is there, the
+    # answer is already no, and the large dilation - nearly all of this test's cost - is
+    # skipped. On a uniform background the only bright pixels are grain rims, all of them
+    # inside `near`, so that is every region.
+    candidates = bright[top:bottom, left:right] & ~near & (window == 0)
+    if not candidates.any():
+        return False
+    far = cv2.dilate(region, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (outer, outer))) > 0
+    band = far & ~near & (window == 0)
+    if not band.any():
+        return False
+    return bright[top:bottom, left:right][band].mean() > BRIGHT_RING_FRACTION
 
 
 def split_component(mask, calib, beta=None):

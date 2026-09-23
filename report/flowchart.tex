@@ -1,4 +1,4 @@
-% !TEX root = 基于尺度自标定与形状先验校正的粘连米粒计数方法.tex
+% !TEX root = 米粒粘连导致漏数的问题与解决.tex
 % 方法流程图。左列为整图处理，右列为对每个连通域的判断与计数。
 % 节点只设最小宽度、不设 text width，避免中文在定宽盒子里被两端对齐拉开字距。
 \begin{tikzpicture}[
@@ -32,12 +32,12 @@
 
   % ---- 右列：逐个连通域 ----
   \node[box, right=29.4mm of in]  (comp) {逐个取出连通域};
-  \node[dec, below=of comp]     (d1)   {面积 $<0.3A_0$？};
-  \node[dec, below=of d1]       (d2)   {是异物？};
+  \node[dec, below=of comp]     (d1)   {面积 $<0.45A_0$？};
+  \node[dec, below=of d1]       (d2)   {异物、亮边\\或暗区？};
   \node[dec, below=of d2]       (d3)   {是粘连块？};
   \node[box, below=of d3]       (ws)   {h-maxima 放种子\\注水分割切开};
-  \node[box, below=of ws]       (fix)  {碎块合并；仍大且凹\\则按面积补数};
-  \node[io, below=of fix]       (sum)  {累加得到总粒数};
+  \node[box, below=of ws]       (fix)  {碎块合并；仍大且凹则\\重切，不成按面积补数};
+  \node[io, below=of fix]       (sum)  {累加，再从开运算前的\\阈值图找回被抹掉的米};
 
   \node[side, right=of d1] (s1) {碎屑，忽略};
   \node[side, right=of d2] (s2) {不计数};

@@ -85,36 +85,36 @@ def counting_ablations(data):
     with patched(segment, is_foreign_object=coin_only_foreign):
         record("foreign test also requiring roundness", lambda items: mae(items))
 
-    with patched(segment, MIN_TRUSTED_MINOR_PX=0.0):
-        record("no measurement-reliability gate", lambda items: mae(items))
-
-    with patched(segment, COARSE_TOUCH_EXCESS=float("inf")):
-        record("reliability gate abstains instead of using width excess",
-               lambda items: mae(items))
-
-    def coarse_area_rule(component, calib):
-        """Coarse-scale splitting on size alone, with no evidence of touching."""
+    def width_excess_below_4_5px(component, calib):
+        """The touching test as it stood before: below 4.5 px of grain width, concavity was
+        replaced by the width excess, with a threshold of 1.5."""
         if component["area"] <= segment.TOUCH_AREA_RATIO * calib["a0"]:
             return False
-        if calib["minor0"] < segment.MIN_TRUSTED_MINOR_PX:
-            return component["area"] > 1.9 * calib["a0"]
+        if calib["minor0"] < 4.5:
+            return segment.width_excess(component, calib) > 1.5
         return component["solidity"] < calib["solidity0"] - segment.TOUCH_SOLIDITY_MARGIN
 
-    with patched(segment, is_touching=coarse_area_rule):
-        record("coarse-scale rule on area instead of width excess", lambda items: mae(items))
+    with patched(segment, is_touching=width_excess_below_4_5px):
+        record("touching: width excess below 4.5 px (previous rule)", lambda items: mae(items))
 
-    original = segment.is_touching
+    with patched(segment, borders_bright_background=lambda *args: False):
+        record("no bright-background test", lambda items: mae(items))
+
+    with patched(counter, SPECK_RATIO=0.3):
+        record("speck threshold 0.3 (previous)", lambda items: mae(items))
+
+    with patched(segment, is_dark=lambda *args: False):
+        record("no dark-region test", lambda items: mae(items))
+
+    with patched(counter, recover_erased=lambda pre, occupied, reference: (None, [])):
+        record("no recovery of erased grains", lambda items: mae(items))
 
     def or_rule(component, calib):
-        if calib["minor0"] < segment.MIN_TRUSTED_MINOR_PX:
-            return False
         return (component["area"] > segment.TOUCH_AREA_RATIO * calib["a0"]
                 or component["solidity"] < calib["solidity0"] - segment.TOUCH_SOLIDITY_MARGIN)
 
     with patched(segment, is_touching=or_rule):
         record("touching gate: OR instead of AND", lambda items: mae(items))
-
-    segment.is_touching = original
 
     # 不合并同一峰顶碎出来的重复种子，即修正前的做法
     def unmerged(dist, minor0, beta=segment.BETA):
@@ -142,7 +142,8 @@ def binarisation_ablations():
     loaders["d3"] = io_utils.load_d3
     variants = {
         "full candidate grid": (dict(channel_names=("gray", "hsv_s")), BINARISATION_SETS),
-        "gray channel only": (dict(channel_names=("gray",)), BINARISATION_SETS),
+        # D3 too: that is the set the saturation channel is kept for.
+        "gray channel only": (dict(channel_names=("gray",)), BINARISATION_SETS + ("d3",)),
         "with 3x3 median filter":
             (dict(channel_names=("gray", "hsv_s"), median_ksize=3), BINARISATION_SETS),
         "one-sided binarisation priors": (dict(channel_names=("gray", "hsv_s")), ("d3",)),

@@ -20,6 +20,7 @@ Numbers differ from the CPU path in two known ways, both measured rather than as
 OpenCV's distance transform is an approximation while `distance_transform_edt` is exact,
 and the HSV saturation channel is rebuilt here in CuPy rather than by `cv2.cvtColor`.
 """
+import cv2
 import numpy as np
 
 from src import calibrate, preprocess
@@ -109,7 +110,7 @@ def candidate_masks_gpu(img_bgr, channel_names=preprocess.DEFAULT_CHANNELS):
                                   ("dark", ch <= thresholds[0])):
                 out.append({"channel_name": name, "channel": ch, "method": method,
                             "polarity": polarity, "thresholds": thresholds, "eta": eta,
-                            "mask": clean_mask_gpu(raw)})
+                            "raw": raw, "mask": clean_mask_gpu(raw)})
     return out
 
 
@@ -298,13 +299,16 @@ def preprocess_gpu(img_bgr, channel_names=preprocess.DEFAULT_CHANNELS):
             # The counting stage works on small cropped clusters, so the chosen mask and
             # its labels come back to the host once, here.
             final["labels"] = cp.asnumpy(final["labels"]).astype(np.int32)
+            host_mask = (cp.asnumpy(mask) > 0).astype(np.uint8) * 255
             return {
+                "bright": preprocess.bright_background(img_bgr, host_mask),
                 "channel_name": cand["channel_name"],
                 "channel": cp.asnumpy(cand["channel"]),
                 "method": cand["method"], "polarity": cand["polarity"],
                 "thresholds": cand["thresholds"], "eta": cand["eta"],
-                "raw_mask": None,
-                "mask": (cp.asnumpy(mask) > 0).astype(np.uint8) * 255,
+                "raw_mask": cp.asnumpy(cand["raw"]).astype(np.uint8) * 255,
+                "gray": cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY),
+                "mask": host_mask,
                 "calib": final,
             }
     raise ValueError("no binarisation candidate survived recalibration")

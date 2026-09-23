@@ -214,6 +214,33 @@ def remove_specks(mask, a0):
     return out
 
 
+def bright_background(img_bgr, mask):
+    """Background pixels far brighter than the surface the grains lie on.
+
+    Grains lie on one surface, but a photograph often also holds the edge of whatever is
+    beyond it - the wooden frame in the low-resolution set, the wall behind the paper in
+    the real photographs. Glints along that edge are grain-sized and grain-shaped, so no
+    shape test can reject them; what gives them away is that one side of them is bright.
+
+    The background is split into its dark mode and the rest by Otsu, but when the whole
+    background is one dark surface Otsu still splits it, down the middle of its noise. So a
+    pixel also has to be brighter than halfway from that dark surface to the grains, which
+    no shade of one surface is. Each condition alone fails on one data set; together they
+    mark the frame and the wall and nothing else.
+    """
+    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+    fg = mask > 0
+    background = gray[~fg]
+    if background.size == 0 or not fg.any():
+        return np.zeros(gray.shape, bool)
+    otsu, _ = cv2.threshold(background.reshape(-1, 1), 0, 255,
+                            cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    dark = background[background <= otsu]
+    surface = float(np.median(dark if dark.size else background))
+    halfway = (surface + float(np.median(gray[fg]))) / 2.0
+    return (gray > max(otsu, halfway)) & ~fg
+
+
 def preprocess(img_bgr, channel_names=DEFAULT_CHANNELS, ksize=3, median_ksize=None):
     """Pick the binarisation whose components look most like a field of single grains."""
     scored = []
@@ -252,6 +279,8 @@ def preprocess(img_bgr, channel_names=DEFAULT_CHANNELS, ksize=3, median_ksize=No
     cand, mask, calib = chosen
 
     return {
+        "bright": bright_background(img_bgr, mask),
+        "gray": cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY),
         "channel_name": cand["channel_name"],
         "channel": cand["channel"],
         "method": cand["method"],

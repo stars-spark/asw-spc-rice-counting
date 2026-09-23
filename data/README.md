@@ -11,7 +11,7 @@
 | `ricecount.v2i.coco.zip` | D4 | 带直尺的真实照片，只用于失效分析，不参与评测 | [asia-pacific-university-xxaah/rice count](https://universe.roboflow.com/asia-pacific-university-xxaah/rice-count) |
 
 每个压缩包内的 `README.dataset.txt` 与 `README.roboflow.txt` 保留了上游的署名与许可信息，请勿删除。
-`ricecount.v2i.coco.zip` 的原始文件名含空格，这里去掉了空格，内容未变。
+`ricecount.v2i.coco.zip` 的上游文件名含空格。为使解压命令与代码目录名一致，仓库中已将空格去掉，内容未变。
 
 ## 解压
 

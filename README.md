@@ -1,164 +1,81 @@
 # 粘连米粒计数
 
-数出照片里有多少粒米，并解决相互接触的米粒被算作一粒的问题。
+这是一份数字图像处理课程作业。目标是数出一张图中的米粒，并处理米粒相互接触后在二值图中合为一个连通域、从而发生漏数的问题。
 
-用“二值化 + 统计连通域”数米粒时，挨在一起的米粒会连成一块、只被计为一粒，米粒越密漏计越多：
-粘连率 80% 时平均少数 38.9 粒。本仓库给出两种做法，并把两者与视觉大模型 SAM 3 放在一起比较。
+方法一不依赖训练。程序先从当前图像中估计单粒米的面积、短轴和形状，再判定粘连块的粒数，使用距离变换与自适应标记分水岭分开粘连区域，最后按面积和形状复核，并过滤硬币、木框亮边等异物。全部尺度判据都由当前图像标定，不使用固定的像素门限。
 
-![两粒米连成一个连通域，只被计为一粒](docs/images/problem_zoom.png)
+方法二以 SAM 3 的点标注作为教师信号，训练一个 27 万参数的密度图网络。报告同时保留了教师伪标签和学生模型检查点，因此不下载 SAM 3 权重也能重新生成报告中的学生模型图。
 
-**方法一（几何方法）**：先由图像自身量出单粒米的面积与形状，据此判定哪些连通域是粘连块、
-控制注水分割（watershed）的种子数量，再按面积与形状复核切分结果，并剔除硬币、木框等非米目标。
-所有判据都以自标定的尺度为单位，不含预先设定的像素常数。
+## 报告结果
 
-![方法一的处理流程](docs/images/pipeline_real.png)
+三组共 810 张测试图中，方法一的平均绝对误差分别为 D1 真实照片 2.75 粒、D2 合成粘连图 0.25 粒、D3 低分辨率图 0.50 粒。D2 的粘连率从 0% 升到 80% 时，直接数连通域的误差从 0.25 粒升到 38.88 粒，本文方法为 0.88 粒。
 
-单粒面积、短轴、凸实度都由图像自身量出，因此换一张照片不必改参数。
-判定为粘连的连通域再单独走一遍注水分割。把距离变换取负值当作地形，每粒米是一个坑，
-水从坑底往上涨，两坑的水相遇处就是切线：
-
-![距离变换当作地形，粘连块在这里是两个坑](docs/images/terrain_3d.png)
-
-种子数由距离变换的 h-maxima 给出。两粒之间的谷比较低的峰矮出 h 以上才切开，
-一粒米内部的浅起伏会被抹平，不会被切成两半：
-
-![沿山脊的剖面，谷深超过 h 才判为两粒](docs/images/seed_depth.png)
-
-![粘连块的切分过程](docs/images/cluster_detail.png)
-
-**方法二（学生模型）**：以 SAM 3 的输出为伪标签，蒸馏一个 27 万参数的密度图网络，
-在同一批测试图上误差低于方法一，而模型体积约为 SAM 3 的三千分之一。
-伪标签的质量先与人工标注核对过，教师点的准确率在两组真实数据上为 0.957 与 0.993。
-
-![四种做法在同一批测试图上的误差](docs/images/student_bars.png)
-
-## 结果
-
-三组数据上的平均绝对误差（粒，越小越好）：
-
-| 方法 | 真实照片 | 合成粘连图 | 低分辨率图 |
-|---|---|---|---|
-| 直接统计连通域 | 6.31 | 22.95 | 3.31 |
-| 总面积除以单粒面积 | 22.76 | 2.30 | 18.39 |
-| 距离变换分水岭 | 74.90 | 8.20 | 8.27 |
-| 腐蚀取标记分水岭 | 5.45 | 22.93 | 4.29 |
-| 凹点检测 + 椭圆拟合 | 5.76 | 2.08 | 3.32 |
-| **方法一（本仓库）** | **4.84** | **0.25** | **1.90** |
-| SAM 3（零样本，逐数据集调优） | 3.61 | 72.15 | 0.18 |
-
-粘连率自 0% 升至 80% 时，直接统计连通域的误差由 0.25 粒升至 38.88 粒，方法一保持在 0.9 粒以内：
-
-![误差随粘连率的变化](docs/images/error_vs_touching.png)
-
-方法一逐张的预测值与真值对照，格子越深表示落在该格的图片越多，虚线为两者相等：
-
-![预测值与真值对照的热力图](docs/images/pred_vs_true.png)
-
-同一张合成粘连图上，方法一与 SAM 3 的逐粒结果。虚线框标出的是没有真正切开、而是按面积折算粒数的粘连块，框上的数字为该块被计作几粒：
-
-![方法一与 SAM 3 的计数结果对照](docs/images/render_d2.png)
-
-在留出的 162 张测试图上，四种做法的总体误差为：直接统计连通域 4.46、方法一 1.86、
-方法二 0.68、SAM 3 0.25 粒。
-
-单张耗时（i9-13900H / RTX 4080 Laptop）：方法一 CPU 0.03–0.63 s、GPU 0.15–0.40 s，
-学生模型 GPU 2–25 ms，SAM 3 GPU 0.21 s、CPU 17 s 以上。
+报告中的所有源文件、图、表、指标、原始数据压缩包、学生模型检查点和教师伪标签均已纳入仓库。克隆后无需重新跑实验就能编译报告；核心几何实验也可以由原始数据重新计算。
 
 ## 安装
 
 ```bash
+git clone https://github.com/stars-spark/asw-spc-rice-counting.git
+cd asw-spc-rice-counting
+python -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-只跑方法一不需要 GPU。与 SAM 3 的对照实验和学生模型需要 PyTorch 与一块显卡；
-GPU 版的几何方法另需 CuPy 与 cuCIM（见 `requirements.txt` 中的注释）。
+XeLaTeX、BibTeX 与中文 `ctex` 宏包用于编译报告。没有 GPU 时可以完成几何方法、指标表和报告编译；SAM 3 的原始推理需要另外安装 `transformers` 并下载模型权重。
 
-插图上的字体与报告正文一致，西文取 Latin Modern Roman、中文取方正书宋，
-找不到时按候选列表回退。也可以用环境变量直接指定字体文件：
+## 直接编译报告
 
-```bash
-export RICE_LATIN_FONT=/path/to/lmroman10-regular.otf
-export RICE_CJK_FONT=/path/to/your/cjk-font.ttf
-```
-
-## 数据
-
-四组数据都放在 `data/` 下，许可均为 CC BY 4.0，逐项来源与解压方式见 [`data/README.md`](data/README.md)。
-仓库里保存的是从 Roboflow Universe 导出的原始压缩包，解压到 `data/extracted/` 即可使用：
+报告引用的图片、数据表和指标已随仓库提交。执行下面的命令即可生成与仓库版本一致的报告 PDF。
 
 ```bash
-cd data
-unzip -q Rice.v1i.coco.zip      -d extracted/rice.v1i.coco
-unzip -q RICE.v3i.coco.zip      -d extracted/RICE.v3i.coco
-unzip -q RICE.v2i.folder.zip    -d extracted/RICE.v2i.folder
-unzip -q ricecount.v2i.coco.zip -d extracted/ricecount.v2i.coco
+make report
 ```
 
-D2（自制可控粘连合成图）由代码按固定随机种子生成，重跑可得到相同的 40 张图与真值：
+输出文件为 `report/米粒粘连导致漏数的问题与解决.pdf`。公开仓库不包含 `report/author.tex`，因此编译版会省略作者行，不影响正文、图表、参考文献和页码。
+
+## 从数据重新计算核心实验
+
+四个 Roboflow 原始导出包位于 `data/`。数据许可、来源与目录映射见 [data/README.md](data/README.md)。以下命令会解压数据、用固定随机种子生成 D2，并重算几何方法、五个基线、消融与鲁棒性实验。
 
 ```bash
-python -m src.synth
+make core
+make tables
 ```
 
-## 复现
+`results/cache/`、`results/synthetic/` 和 `results/renders/` 是可再生成的大型中间产物，刻意未纳入版本控制。报告真正需要的 `results/figures/`、`results/metrics/`、`results/labels/` 与 `results/student/` 则已提交。
+
+若要重新生成依赖缓存学生模型与教师伪标签的主要插图，先完成数据准备，再运行：
 
 ```bash
-python -m src.evaluate       # 三组数据上的总体结果、按粘连率分层
-python -m src.ablation       # 消融实验
-python -m src.robustness     # 模糊/噪声/对比度/分辨率退化
-python -m src.cost           # 耗时与显存占用
-python -m src.visualize      # 论文插图
+make figures
 ```
 
-与 SAM 3 相关的部分（需要显卡和已下载的权重）：
+## 重新运行 SAM 3 与学生模型
+
+仓库保存了生成报告所需的 SAM 3 汇总指标、伪标签和学生模型权重，因而报告可离线复现。若希望从零重新运行教师模型与训练学生模型，需要安装额外依赖、准备可用 GPU，并先下载 Meta 的 SAM 3 权重：
 
 ```bash
-python -m src.teacher_sam --matrix   # 提示词 × 数据集的误差矩阵
-python -m src.pseudo                 # 由 SAM 3 生成伪标签
-python -m src.student                # 训练学生模型
-python -m src.student --eval         # 学生模型与其他做法的对比
+pip install transformers
+python -m src.teacher_sam --matrix
+python -m src.pseudo
+python -m src.student
+python -m src.student --eval
 ```
 
-批量处理自己的照片：
+这部分会改变与硬件、模型版本和随机数状态有关的耗时及部分中间结果；报告中的版本化指标用于固定可核对的实验记录。
 
-```bash
-python -m src.batch 图片目录 --out counts.csv
-```
+## 项目结构
 
-## 代码结构
-
-| 文件 | 职责 |
-|---|---|
-| `preprocess.py` | 多候选二值化与打分选择 |
-| `calibrate.py` | 尺度自标定、区域属性测量 |
-| `segment.py` | 粘连判据、自适应种子、注水分割 |
-| `correct.py` | 碎块合并、按面积补数 |
-| `counter.py` | 计数主流程 |
-| `baselines.py` | 五种对比方法 |
-| `synth.py` | 可控粘连合成数据生成 |
-| `evaluate.py` / `ablation.py` / `robustness.py` / `cost.py` | 评测、消融、退化、算力 |
-| `teacher_sam.py` / `pseudo.py` / `student.py` | SAM 3 对照、伪标签、学生模型 |
-| `gpu_pipeline.py` | 几何方法的 GPU 实现（CuPy + cuCIM） |
-| `batch.py` | 批量处理，含线程数设置 |
-| `visualize.py` / `render.py` / `report_tables.py` | 插图与表格生成 |
-
-## 一点实现经验
-
-- **线程不是越多越好。** 标定中有大量很小的矩阵运算，OpenBLAS 默认开 20 个线程去应付，
-  处理一张图会占满 17 个核，反而更慢。锁成单线程后单张快 1.6–1.8 倍，再按图多进程并行才有效果。
-- **先测量再优化。** 最初以为瓶颈在逐像素运算，profile 后发现 98% 的时间花在逐个连通域算凸包上；
-  把判断顺序调整为「先按得分排序、再从高到低检查」之后，绝大多数凸包不必再算，D2 由 6.6 s 降到 0.63 s，
-  且计数结果与优化前逐张一致。
-- **图像很小时 GPU 更慢。** 224×224 的图上 GPU 版比 CPU 版慢一倍，核函数启动开销超过了计算本身。
-
-## 报告
-
-`report/` 下是课程报告的 LaTeX 源码与编译好的 PDF。需要 XeLaTeX 与 ctex：
-
-```bash
-cd report && xelatex 基于尺度自标定与形状先验校正的粘连米粒计数方法 && bibtex 基于尺度自标定与形状先验校正的粘连米粒计数方法 && xelatex 基于尺度自标定与形状先验校正的粘连米粒计数方法 && xelatex 基于尺度自标定与形状先验校正的粘连米粒计数方法
-```
+| 路径 | 内容 |
+| --- | --- |
+| `src/` | 几何方法、基线、评测、SAM 3 对照和学生模型 |
+| `data/` | 原始数据压缩包与许可说明 |
+| `results/figures/` | 报告实际引用的插图 |
+| `results/metrics/` | 报告表格和图形使用的实验指标 |
+| `results/labels/`、`results/student/` | 学生模型图所需的教师伪标签与检查点 |
+| `report/` | 课程报告 LaTeX 源码 |
 
 ## 许可
 
-代码以 MIT 许可发布。
+本仓库代码采用 MIT 许可。数据集保持其原始 CC BY 4.0 许可与署名信息，详见 [data/README.md](data/README.md)。

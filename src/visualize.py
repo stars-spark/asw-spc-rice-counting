@@ -13,7 +13,7 @@ matplotlib.use("Agg")
 from matplotlib import font_manager
 
 # 图上的字与正文保持一致：西文用 Latin Modern Roman，中文用方正书宋，
-# 与 report/基于尺度自标定与形状先验校正的粘连米粒计数方法.tex 里 \setCJKmainfont 指定的是同一套。
+# 与 report/米粒粘连导致漏数的问题与解决.tex 里 \setCJKmainfont 指定的是同一套。
 # 找不到时按候选顺序回退，也可用环境变量 RICE_LATIN_FONT / RICE_CJK_FONT 指定文件。
 _LATIN_FAMILIES = ("Latin Modern Roman", "CMU Serif", "TeX Gyre Termes", "DejaVu Serif")
 _CJK_FAMILIES = ("FZShuSong-Z01", "Source Han Serif SC", "Noto Serif CJK SC",
@@ -231,7 +231,8 @@ def pipeline_figure(image_bgr, out_name="pipeline.png"):
         f"$A_0$ = {calib['a0']:.0f} px\n"
         f"$b_0$ = {calib['minor0']:.1f} px\n"
         f"$\\rho_0$ = {calib['solidity0']:.2f}\n"
-        f"$r_0$ = {calib['axis_ratio0']:.2f}\n\n"
+        f"$w_0$ = {calib['width0']:.1f} px\n"
+        f"长宽比 {calib['axis_ratio0']:.2f}\n\n"
         f"孤立米粒 {debug['n_isolated']} 粒\n"
         f"粘连块 {debug['n_clusters']} 个",
         va="top", fontsize=10 * FONT_SCALE,
@@ -452,21 +453,28 @@ def scope_failure_figure(out_name="scope_failure.png"):
 
 
 def appendix_renders_figure(dataset, n_scenes=2, prompt="white seed", threshold=0.40,
-                            teacher=None):
+                            teacher=None, files=None):
     """Scenes from one dataset, counted by this method and by SAM 3, one file per scene.
 
-    Scenes are taken evenly across the set rather than chosen, so the appendix shows what the
-    methods usually do rather than what they do at their best. Counts go in the panel titles
-    because the drawing itself carries no text. One file per scene, named ``_a``, ``_b``, ...,
-    so each can be placed next to the text that discusses it.
+    By default scenes are taken evenly across the set rather than chosen, so the appendix
+    shows what the methods usually do rather than what they do at their best. ``files`` names
+    the scenes instead, by file-name prefix and in output order. D1 uses it: the evenly taken
+    first scene is already the main-text figure, so its place goes to the scene with the fewest
+    grain-by-grain errors against the annotation boxes among the rest. Counts go in the panel titles because the drawing itself carries no text.
+    One file per scene, named ``_a``, ``_b``, ..., so each can be placed next to the text that
+    discusses it.
     """
     from src import render, synth
     from src import io_utils as io
 
     loaders = {"d1": io.load_d1, "d2": synth.load_d2, "d3": io.load_d3}
     samples = loaders[dataset]()
-    step = max(len(samples) // n_scenes, 1)
-    picked = [samples[i * step] for i in range(n_scenes) if i * step < len(samples)]
+    if files is not None:
+        picked = [next(s for s in samples if s["file_name"].startswith(prefix + "_"))
+                  for prefix in files]
+    else:
+        step = max(len(samples) // n_scenes, 1)
+        picked = [samples[i * step] for i in range(n_scenes) if i * step < len(samples)]
 
     if teacher is None:
         from src.teacher_sam import Sam3Teacher
@@ -841,7 +849,7 @@ def _trim_white(path, margin=8):
 # 密度图一律用 viridis，点标注一律用下面这三种颜色，读者在三张图之间不必重新适应。
 
 STUDENT_PIPELINE_IMAGE = "WIN_20240127_13_47_18_Pro_jpg.rf.0166d2906ccb16ad5d7fc3b284356c7c.jpg"
-STUDENT_WIN_IMAGE = "WIN_20240126_11_50_40_Pro_jpg.rf.6955042005db49274dd07b952ea0d5ec.jpg"
+STUDENT_WIN_IMAGE = "WIN_20240202_13_44_43_Pro_jpg.rf.92577bdc6c5f750f78958f0a52d82f4a.jpg"
 TEACHER_LABEL_IMAGE = "IMG_5974_JPG.rf.01d37e6f9e5fa5d90b047c1eb803cc7a.jpg"
 
 POINT_COLORS = {"matched": "#009E73", "missed": "#D55E00", "extra": "#0072B2"}
@@ -1281,7 +1289,7 @@ def student_bars_figure(out_name="student_bars.pdf"):
     return _save_data_fig(fig, out_name)
 
 
-ABSTRACT_REAL_IMAGE = "IMG20240925164316_jpg.rf.4b4efde2cdd707e707e25ece4084e127.jpg"
+ABSTRACT_REAL_IMAGE = "IMG_5930_JPG.rf.bd0c252f6e89ff547f1965b6d1333f63.jpg"
 ABSTRACT_SYNTH_IMAGE = "touch80_05.png"
 
 
@@ -1295,7 +1303,7 @@ def abstract_figure(out_name="graphical_abstract.pdf"):
     from src import counter, plotstyle as ps, render, synth
 
     # 两个位置各放该类里数得最准的一张。先比总数误差，再比逐粒按位置配对后的漏检与多检。
-    # 真实照片这张数出 82 粒、真值 82 粒，配对后只漏 1 粒、多 1 粒；
+    # 真实照片这张数出 98 粒、真值 98 粒，配对后只漏 1 粒、多 1 粒；
     # 合成图这张粘连率 80%，数出 87 粒、真值 87 粒，每一块都恰好对应一粒米。
     real = {s["file_name"]: s for s in io_utils.load_d1()}[ABSTRACT_REAL_IMAGE]
     dense = {s["file_name"]: s for s in synth.load_d2()}[ABSTRACT_SYNTH_IMAGE]

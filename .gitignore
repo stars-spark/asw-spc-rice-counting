@@ -2,8 +2,17 @@ __pycache__/
 *.py[cod]
 .ipynb_checkpoints/
 
-# 中间结果可以重新生成，不入库；数据集只保留四个原始压缩包，解压产物不入库
-results/
+# 大型缓存、批量渲染图和 D2 合成图可以重新生成，不入库。
+# 报告实际引用的图、指标、伪标签与学生模型检查点需要版本化，保证克隆后可直接编译报告。
+results/*
+!results/figures/
+!results/figures/**
+!results/metrics/
+!results/metrics/**
+!results/labels/
+!results/labels/**
+!results/student/
+!results/student/**
 data/*
 !data/*.zip
 !data/README.md
@@ -18,6 +27,8 @@ report/*.blg
 report/*.synctex.gz
 # 署名信息不随公开仓库分发，缺失时标题下自动不排署名行
 report/author.tex
+report/*_backup.tex
+report/*.pdf
 
 .vscode/*
 !.vscode/settings.json
